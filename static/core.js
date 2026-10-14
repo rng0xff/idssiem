@@ -6,6 +6,7 @@ const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmtN = n => new Intl.NumberFormat().format(n ?? 0);
 const ROUTES = {};
+let ME = null; // the signed-in user, set by users.js
 const SEVS = ['info', 'low', 'medium', 'high', 'critical'];
 const sevColor = s => `var(--sev-${s})`;
 const CATS = ['var(--cat1)', 'var(--cat2)', 'var(--cat3)', 'var(--cat4)', 'var(--cat5)', 'var(--cat6)', 'var(--cat7)', 'var(--cat8)'];
@@ -40,6 +41,7 @@ async function api(path, opts = {}) {
   const res = await fetch(path, init);
   let data = null;
   try { data = await res.json(); } catch (_) { /* non-JSON */ }
+  if (res.status === 401 && ME && !path.startsWith('/api/auth/')) { showAuth(false, 'Your session has ended. Sign in again.'); throw new Error('Signed out'); }
   if (!res.ok) throw new Error((data && data.error) || `${res.status} ${res.statusText}`);
   return data;
 }

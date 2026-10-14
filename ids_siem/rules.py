@@ -8,7 +8,7 @@ import json
 import statistics
 from collections import defaultdict
 
-from . import db
+from . import auth, db
 from .catalog import SEVERITIES, SEV_NUM
 
 RULE_INFO = {
@@ -295,7 +295,7 @@ def update_alert(aid, body):
     if not r:
         return None
     now = db.now_ms()
-    who = db.get_settings().get("analyst", "analyst")
+    who = auth.current_name()
     if "status" in body and body["status"] != r["status"]:
         if body["status"] not in STATUSES:
             raise ValueError("invalid status")

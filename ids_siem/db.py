@@ -80,6 +80,30 @@ CREATE TABLE IF NOT EXISTS case_log(
   id INTEGER PRIMARY KEY, case_id INTEGER, author TEXT, kind TEXT, body TEXT, created_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS ix_cl_case ON case_log(case_id);
+CREATE TABLE IF NOT EXISTS users(
+  id INTEGER PRIMARY KEY,
+  username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  display_name TEXT DEFAULT '',
+  role TEXT NOT NULL DEFAULT 'viewer',
+  pw_hash TEXT NOT NULL,
+  active INTEGER DEFAULT 1,
+  failed INTEGER DEFAULT 0, locked_until INTEGER DEFAULT 0,
+  created_at INTEGER, last_login INTEGER
+);
+CREATE TABLE IF NOT EXISTS sessions(
+  token_hash TEXT PRIMARY KEY, user_id INTEGER,
+  created_at INTEGER, last_seen INTEGER, expires_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS ix_sess_user ON sessions(user_id);
+CREATE TABLE IF NOT EXISTS api_tokens(
+  id INTEGER PRIMARY KEY, user_id INTEGER, name TEXT,
+  token_hash TEXT UNIQUE, preview TEXT,
+  perm TEXT, created_at INTEGER, expires_at INTEGER, last_used INTEGER, revoked_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS ix_tok_user ON api_tokens(user_id);
+CREATE TABLE IF NOT EXISTS audit(
+  id INTEGER PRIMARY KEY, ts INTEGER, actor TEXT, action TEXT, detail TEXT
+);
 """
 
 DEFAULT_SETTINGS = {
@@ -112,6 +136,10 @@ def conn():
     if c is None:
         os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
         c = sqlite3.connect(DB_PATH, timeout=30)
+        try:  # the file holds password hashes and a backend token: owner only
+            os.chmod(DB_PATH, 0o600)
+        except OSError:
+            pass
         c.row_factory = sqlite3.Row
         c.execute("PRAGMA journal_mode=WAL")
         c.execute("PRAGMA synchronous=NORMAL")
@@ -137,6 +165,8 @@ def get_settings():
             v = json.loads(r["value"])
         except ValueError:
             continue
+        if r["key"].startswith("_"):
+            continue  # private (auth policy, backend secret): never part of /api/settings
         if r["key"] == "rules" and isinstance(v, dict):
             for rule, params in v.items():
                 if rule in out["rules"] and isinstance(params, dict):

@@ -167,7 +167,7 @@ async function viewCase(id, keepScroll = false) {
       <div class="panel"><h2>Details</h2>
         <label class="field"><span>Status</span><select data-f="status" ${closed ? 'disabled' : ''}>${closed ? '<option>Closed</option>' : CASE_STATUSES.map(s => `<option value="${s}" ${s === c.status ? 'selected' : ''}>${caseStatusLabel(s)}</option>`).join('')}</select></label>
         <label class="field"><span>Severity</span><select data-f="severity">${SEVS.slice().reverse().map(s => `<option ${s === c.severity ? 'selected' : ''}>${s}</option>`).join('')}</select></label>
-        <label class="field"><span>Owner</span><input type="text" data-f="owner" value="${esc(c.owner)}" placeholder="Who works on it"></label>
+        <label class="field"><span>Owner</span><input type="text" data-f="owner" list="userlist" value="${esc(c.owner)}" placeholder="Who works on it"></label>
         <label class="field"><span>Due date${c.overdue ? ' <b style="color:var(--err)">(overdue)</b>' : ''}</span><input type="date" data-f="due_date" value="${esc(c.due_date)}"></label>
         <dl class="kv" style="grid-template-columns:80px minmax(0,1fr)"><dt>Opened</dt><dd>${esc(fmtMin(c.created_at))} UTC by ${esc(c.created_by)}</dd><dt>Age</dt><dd>${c.age_days} days</dd><dt>Updated</dt><dd>${esc(fmtMin(c.updated_at))} UTC</dd></dl></div>
       <div class="panel"><h2>Vehicles involved</h2>${c.vehicles.length ? `<div class="bars" style="gap:2px">${c.vehicles.map(v => `<a class="bar" style="grid-template-columns:minmax(0,1fr) auto" href="${hashFor('vehicle', {}, v.vin)}"><span class="mono">${esc(v.vin)}</span><span class="val">${v.alerts} alert${v.alerts > 1 ? 's' : ''}</span></a>`).join('')}</div>` : '<p class="muted" style="margin:0">None, the alerts are fleet-wide.</p>'}</div>
@@ -253,7 +253,7 @@ async function openCaseForm(alertIds) {
     ${alerts.length ? `<div class="tablewrap" style="margin-bottom:12px"><table><tbody>${alerts.map(a => `<tr><td>${sevHtml(a.severity)}</td><td>${esc(a.title)}<div class="muted mono">${esc(a.vin || 'fleet')}</div></td></tr>`).join('')}</tbody></table></div>` : ''}
     <label class="field"><span>Title</span><input type="text" id="cf-title" value="${esc(title)}" placeholder="Short description of the case"></label>
     <label class="field"><span>Severity</span><select id="cf-sev">${SEVS.slice().reverse().map(s => `<option ${s === top ? 'selected' : ''}>${s}</option>`).join('')}</select></label>
-    <label class="field"><span>Owner</span><input type="text" id="cf-owner" value="${esc(st.analyst)}"></label>
+    <label class="field"><span>Owner</span><input type="text" id="cf-owner" list="userlist" value="${esc(ME.username)}"></label>
     <label class="field"><span>Due date</span><input type="date" id="cf-due"></label>
     <label class="field"><span>Summary</span><textarea id="cf-sum" rows="4" placeholder="What do you know so far?"></textarea></label>
     <p class="muted">The case starts with the standard checklist (${(st.case_tasks || []).length} tasks). Change it on the Data page.</p>

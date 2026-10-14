@@ -6,7 +6,7 @@ case. Closing a case can resolve its open alerts in one step.
 import datetime
 import statistics
 
-from . import db
+from . import auth, db
 from .catalog import SEVERITIES, SEV_NUM
 
 OPEN_STATUSES = ["open", "investigating", "waiting"]
@@ -26,7 +26,7 @@ class NotFound(Exception):
 
 
 def _who():
-    return db.get_settings().get("analyst", "analyst")
+    return auth.current_name()
 
 
 def _log(c, case_id, kind, body, now, author=None):

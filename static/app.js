@@ -20,7 +20,15 @@ function hashFor(name, obj = {}, arg) {
 function go(name, obj, arg) { const h = hashFor(name, obj, arg); if (location.hash === h) render(); else location.hash = h; }
 const paramsObj = P => Object.fromEntries(P.entries());
 
+// Renders run one at a time and the newest request wins, so a slow view cannot overwrite a newer one
+let rendering = false, renderAgain = false;
 async function render() {
+  if (!ME) return;
+  if (rendering) { renderAgain = true; return; }
+  rendering = true;
+  try { do { renderAgain = false; await renderOnce(); } while (renderAgain && ME); } finally { rendering = false; }
+}
+async function renderOnce() {
   closeDrawer();
   view.onclick = view.oninput = view.onchange = view.onkeydown = null;
   window.__reloadAlerts = null;
@@ -30,9 +38,10 @@ async function render() {
   view.innerHTML = '<div class="empty">Loading…</div>';
   try { await fn(arg, params); }
   catch (e) { view.innerHTML = `<div class="panel"><h2>Something went wrong</h2><p>${esc(e.message)}</p><p class="muted">Check the terminal running the server for details.</p></div>`; }
+  if (ME.level < 2 && !$('.rolenote', view)) view.insertAdjacentHTML('afterbegin', '<p class="note rolenote">You have read-only access. Ask an administrator for the analyst role to triage alerts and work cases.</p>');
   refreshChrome();
 }
-window.addEventListener('hashchange', render);
+window.addEventListener('hashchange', () => { if (ME) render(); });
 
 async function refreshChrome() {
   try {
@@ -342,7 +351,7 @@ async function openAlert(id) {
     ${a.case ? `<p style="margin:0"><a href="${hashFor('cases', {}, a.case.id)}">Case #${a.case.id}: ${esc(a.case.title)}</a> ${caseStatusHtml(a.case.status)}</p>`
       : `<p style="margin:0"><button class="btn primary" data-act="new-case" data-id="${a.id}">Create case</button> <button class="btn" data-act="link-case" data-id="${a.id}">Add to existing case</button></p>`}
     <h3>Assignee</h3>
-    <p style="margin:0"><input type="text" id="assignee" value="${esc(a.assignee)}" placeholder="Name" style="width:200px"> <button class="btn small" data-act="set-assignee" data-id="${a.id}">Save</button></p>
+    <p style="margin:0"><input type="text" id="assignee" list="userlist" value="${esc(a.assignee)}" placeholder="Name" style="width:200px"> <button class="btn small" data-act="set-assignee" data-id="${a.id}">Save</button></p>
     <h3>Notes and history</h3>
     <textarea id="cmt" rows="3" placeholder="Write a note, for example what you checked and why you closed it"></textarea>
     <p style="margin:6px 0 10px"><button class="btn small" data-act="add-comment" data-id="${a.id}">Add note</button></p>
@@ -425,7 +434,7 @@ ROUTES.data = async function () {
   </div>
   <div class="panel"><h2>Import history</h2>${imps.length ? `<div class="tablewrap"><table><thead><tr><th>When (UTC)</th><th>File</th><th class="num">Rows</th><th class="num">New</th><th class="num">Already present</th><th class="num">Unusable</th><th class="num">Still stored</th><th></th></tr></thead><tbody>
     ${imps.map(i => `<tr><td class="nowrap mono">${esc(fmtMin(i.imported_at))}</td><td>${esc(i.filename)}</td><td class="num">${fmtN(i.rows_total)}</td><td class="num">${fmtN(i.rows_new)}</td><td class="num">${fmtN(i.rows_dup)}</td><td class="num">${fmtN(i.rows_invalid)}</td><td class="num">${fmtN(i.events_now)}</td><td><button class="btn small danger" data-delimp="${i.id}">Remove events</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">No imports yet.</div>'}</div>
-  <div class="panel"><h2>Settings</h2><div class="params"><label>Earliest plausible event date<input type="text" id="tsmin" value="${esc(st.ts_min)}" placeholder="YYYY-MM-DD"></label><label>Your name for notes<input type="text" id="analyst" value="${esc(st.analyst)}"></label></div>
+  <div class="panel"><h2>Settings</h2><div class="params"><label>Earliest plausible event date<input type="text" id="tsmin" value="${esc(st.ts_min)}" placeholder="YYYY-MM-DD"></label></div>
     <label class="field" style="margin-top:14px;max-width:640px"><span>Checklist every new case starts with, one task per line</span><textarea id="casetasks" rows="5">${esc((st.case_tasks || []).join('\n'))}</textarea></label>
     <p class="muted">Vehicles often report an unsynchronised clock (for example 2020 or 1970) until they get a time source. Timestamps before the date above are treated as unusable.</p>
     <p style="margin:0"><button class="btn" id="savest">Save settings</button></p></div>
@@ -449,7 +458,7 @@ ROUTES.data = async function () {
   ['dragenter', 'dragover'].forEach(n => drop.addEventListener(n, e => { e.preventDefault(); drop.classList.add('over'); }));
   ['dragleave', 'drop'].forEach(n => drop.addEventListener(n, e => { e.preventDefault(); drop.classList.remove('over'); }));
   drop.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if (f) doImport(f); });
-  $('#savest').addEventListener('click', async () => { try { await api('/api/settings', { method: 'PUT', json: { ts_min: $('#tsmin').value.trim(), analyst: $('#analyst').value.trim(), case_tasks: $('#casetasks').value.split('\n').map(x => x.trim()).filter(Boolean) } }); toast('Settings saved'); render(); } catch (e) { toast(e.message, true); } });
+  $('#savest').addEventListener('click', async () => { try { await api('/api/settings', { method: 'PUT', json: { ts_min: $('#tsmin').value.trim(), case_tasks: $('#casetasks').value.split('\n').map(x => x.trim()).filter(Boolean) } }); toast('Settings saved'); render(); } catch (e) { toast(e.message, true); } });
   $('#reset').addEventListener('click', async () => { try { await api('/api/reset', { method: 'POST', json: { confirm: $('#resetconf').value } }); toast('All events deleted'); render(); } catch (e) { toast(e.message, true); } });
   view.onclick = async e => {
     const g = e.target.closest('[data-go]'); if (g) { location.hash = g.dataset.go; return; }
@@ -458,4 +467,4 @@ ROUTES.data = async function () {
   };
 };
 
-render();
+boot();

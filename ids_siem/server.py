@@ -17,7 +17,7 @@ import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from . import cases, catalog, db, ingest, query, rules
+from . import auth, cases, catalog, db, ingest, query, rules
 
 STATIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static")
 MAX_BODY = 1024 * 1024 * 1024
@@ -26,11 +26,14 @@ ALLOWED_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
 ROUTES = []
 
 
-def route(method, pattern):
+def route(method, pattern, level=None, public=False, session_only=False):
+    """level: 1 viewer, 2 analyst, 3 admin. Default: reads are viewer, everything else analyst.
+    session_only: refuse API tokens (so a stolen token cannot mint more tokens or change a password)."""
     rx = re.compile("^" + pattern + "$")
+    meta = {"level": level or (1 if method == "GET" else 2), "public": public, "session_only": session_only}
 
     def deco(fn):
-        ROUTES.append((method, rx, fn))
+        ROUTES.append((method, rx, fn, meta))
         return fn
     return deco
 
@@ -138,6 +141,125 @@ def api_run(h, p):
     return rules.run_all()
 
 
+
+# ------------------------------------------------------------------ accounts, roles, tokens
+def _auth_call(fn, *args):
+    try:
+        return fn(*args)
+    except ValueError as e:
+        raise HttpError(400, str(e))
+
+
+@route("GET", "/api/auth/status", public=True)
+def api_auth_status(h, p):
+    u = auth.identify(h.headers)
+    return {"setup_needed": auth.user_count() == 0, "user": auth.me(u) if u else None, "roles": auth.ROLE_TEXT}
+
+
+@route("POST", "/api/auth/setup", public=True)
+def api_auth_setup(h, p):
+    b = h.json_body()
+    user = _auth_call(auth.setup_first_admin, b)
+    raw, ttl = auth.login(b.get("username"), b.get("password"))
+    h.set_cookie = (raw, ttl)
+    return {"user": user}
+
+
+@route("POST", "/api/auth/login", public=True)
+def api_auth_login(h, p):
+    b = h.json_body()
+    raw, ttl = auth.login(b.get("username", ""), b.get("password", ""))
+    h.set_cookie = (raw, ttl)
+    u = auth.identify({"Cookie": f"{auth.COOKIE}={raw}"})
+    return {"user": auth.me(u)}
+
+
+@route("POST", "/api/auth/logout", session_only=True, level=1)
+def api_auth_logout(h, p):
+    auth.logout(h.cookie_value())
+    h.set_cookie = ("", 0)
+    return {"ok": True}
+
+
+@route("POST", "/api/auth/password", session_only=True, level=1)
+def api_auth_password(h, p):
+    return _auth_call(auth.change_password, h.user, h.json_body(), h.user.get("session"))
+
+
+@route("GET", "/api/auth/policy", level=1)
+def api_policy(h, p):
+    return auth.get_policy()
+
+
+@route("PUT", "/api/auth/policy", level=3)
+def api_policy_put(h, p):
+    r = _auth_call(auth.put_policy, h.json_body())
+    auth.log(h.user["username"], "policy.update", json.dumps(r))
+    return r
+
+
+@route("GET", "/api/backend", level=3)
+def api_backend(h, p):
+    return auth.get_backend()
+
+
+@route("PUT", "/api/backend", level=3)
+def api_backend_put(h, p):
+    r = _auth_call(auth.put_backend, h.json_body())
+    auth.log(h.user["username"], "backend.update", f"{r['base_url']} token {'set' if r['token_set'] else 'not set'}")
+    return r
+
+
+@route("GET", "/api/audit", level=3)
+def api_audit(h, p):
+    return auth.audit_list()
+
+
+@route("GET", "/api/users/names", level=1)
+def api_user_names(h, p):
+    return auth.user_names()
+
+
+@route("GET", "/api/users", level=3)
+def api_users(h, p):
+    return {"users": auth.list_users(), "roles": auth.ROLE_TEXT}
+
+
+@route("POST", "/api/users", level=3)
+def api_user_create(h, p):
+    return _auth_call(auth.create_user, h.json_body(), h.user["username"])
+
+
+@route("PATCH", r"/api/users/(\d+)", level=3)
+def api_user_update(h, p, uid):
+    try:
+        return auth.update_user(int(uid), h.json_body(), h.user["username"])
+    except ValueError as e:
+        raise HttpError(400, str(e))
+
+
+@route("DELETE", r"/api/users/(\d+)", level=3)
+def api_user_delete(h, p, uid):
+    return _auth_call(auth.delete_user, int(uid), h.user)
+
+
+@route("GET", "/api/tokens", session_only=True, level=1)
+def api_tokens(h, p):
+    if (p.get("all") or [""])[0] and h.user["role"] == "admin":
+        return auth.list_tokens(h.user, all_users=True)
+    return auth.list_tokens(h.user)
+
+
+@route("POST", "/api/tokens", session_only=True, level=1)
+def api_token_create(h, p):
+    return _auth_call(auth.create_token, h.user, h.json_body())
+
+
+@route("DELETE", r"/api/tokens/(\d+)", session_only=True, level=1)
+def api_token_revoke(h, p, tid):
+    return auth.revoke_token(h.user, int(tid))
+
+
 # ------------------------------------------------------------------ cases
 def _case_call(fn, *args):
     try:
@@ -178,7 +300,7 @@ def api_case_update(h, p, cid):
     return _case_call(cases.update_case, int(cid), h.json_body())
 
 
-@route("DELETE", r"/api/cases/(\d+)")
+@route("DELETE", r"/api/cases/(\d+)", level=3)
 def api_case_delete(h, p, cid):
     return _case_call(cases.delete_case, int(cid))
 
@@ -234,7 +356,7 @@ def api_settings(h, p):
     return db.get_settings()
 
 
-@route("PUT", "/api/settings")
+@route("PUT", "/api/settings", level=3)
 def api_settings_put(h, p):
     return db.put_settings(h.json_body())
 
@@ -267,7 +389,7 @@ def api_imports(h, p):
     return query.rows("SELECT i.*, (SELECT COUNT(*) FROM events e WHERE e.import_id=i.id) AS events_now FROM imports i ORDER BY id DESC")
 
 
-@route("DELETE", r"/api/imports/(\d+)")
+@route("DELETE", r"/api/imports/(\d+)", level=3)
 def api_import_delete(h, p, iid):
     c = db.conn()
     n = c.execute("DELETE FROM events WHERE import_id=?", (int(iid),)).rowcount
@@ -320,7 +442,7 @@ def api_ingest(h, p):
     return stats
 
 
-@route("POST", "/api/reset")
+@route("POST", "/api/reset", level=3)
 def api_reset(h, p):
     if h.json_body().get("confirm") != "DELETE ALL EVENTS":
         raise HttpError(400, "confirmation text missing")
@@ -359,7 +481,28 @@ class Handler(BaseHTTPRequestHandler):
             sys.stderr.write("%s %s\n" % (self.address_string(), fmt % args))
 
     # -- helpers
+    user = None
+    set_cookie = None
+
+    def cookie_value(self):
+        m = re.search(r"(?:^|;\s*)" + auth.COOKIE + r"=([^;]+)", self.headers.get("Cookie") or "")
+        return m.group(1) if m else None
+
+    _body_read = False
+
+    def _drain_body(self):
+        """A handler that never reads its body would leave it on the keep-alive connection and corrupt the next request."""
+        if self._body_read:
+            return
+        n = int(self.headers.get("Content-Length") or 0)
+        if n > 1024 * 1024:
+            self.close_connection = True  # do not swallow a huge unread upload
+        elif n:
+            self.rfile.read(n)
+        self._body_read = True
+
     def raw_body(self):
+        self._body_read = True
         n = int(self.headers.get("Content-Length") or 0)
         if n > MAX_BODY:
             raise HttpError(413, "upload too large")
@@ -392,32 +535,57 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- dispatch
     def handle_any(self, method):
+        self.user = None
+        self.set_cookie = None
+        self._body_read = False
         try:
             host = (self.headers.get("Host") or "").rsplit(":", 1)[0] if not (self.headers.get("Host") or "").startswith("[") else "[::1]"
             if host not in ALLOWED_HOSTS:
                 raise HttpError(403, "forbidden host")
-            if method != "GET" and self.headers.get("X-SIEM") != "1":
+            bearer = (self.headers.get("Authorization") or "").lower().startswith("bearer ")
+            if method != "GET" and not bearer and self.headers.get("X-SIEM") != "1":
                 raise HttpError(403, "missing X-SIEM header")
             u = urlparse(self.path)
             params = parse_qs(u.query)
             if u.path.startswith("/api/"):
-                for m, rx, fn in ROUTES:
+                for m, rx, fn, meta in ROUTES:
                     if m == method:
                         mt = rx.match(u.path)
                         if mt:
+                            if not meta["public"]:
+                                self.user = auth.identify(self.headers)
+                                if not self.user:
+                                    raise HttpError(401, "login required")
+                                if meta["session_only"] and self.user["via"] != "session":
+                                    raise HttpError(403, "this needs a signed-in session, not an API token")
+                                if self.user["level"] < meta["level"]:
+                                    need = auth.LEVEL_NAME[meta["level"]]
+                                    who = "Your role" if self.user["via"] == "session" else "This token"
+                                    raise HttpError(403, f"{who} ({auth.LEVEL_NAME[self.user['level']]}) may not do this. It needs {need} access.")
+                            auth.set_current(self.user)
                             res = fn(self, params, *mt.groups())
+                            extra = None
+                            if self.set_cookie is not None:
+                                raw, ttl = self.set_cookie
+                                extra = {"Set-Cookie": f"{auth.COOKIE}={raw}; HttpOnly; SameSite=Strict; Path=/; Max-Age={ttl}"}
                             if isinstance(res, tuple) and res and res[0] == "raw":
                                 return self.send(200, res[1], res[2], res[3] if len(res) > 3 else None)
-                            return self.send_json(200, res)
+                            return self.send(200, "application/json; charset=utf-8", json.dumps(res, default=str).encode(), extra)
                 raise HttpError(404, "no such endpoint")
             if method != "GET":
                 raise HttpError(405, "method not allowed")
             return self.static(u.path)
-        except HttpError as e:
+        except (HttpError, auth.AuthError) as e:
             self.send_json(e.code, {"error": e.msg})
         except Exception as e:  # noqa
             traceback.print_exc()
             self.send_json(500, {"error": f"{type(e).__name__}: {e}"})
+        finally:
+            auth.set_current(None)
+            try:
+                self._drain_body()
+            except Exception:  # noqa
+                self.close_connection = True
 
     def static(self, path):
         rel = "index.html" if path in ("/", "") else path.lstrip("/")

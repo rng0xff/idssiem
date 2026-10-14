@@ -81,7 +81,7 @@ a.btn.primary { color: var(--accent-ink); }
 .btn.danger { color: var(--err); }
 .btn.danger:hover { border-color: var(--err); }
 .btn[disabled] { opacity: .5; cursor: not-allowed; }
-input[type=text], input[type=search], input[type=number], input[type=date], select, textarea {
+input[type=text], input[type=password], input[type=search], input[type=number], input[type=date], select, textarea {
   border: 1px solid var(--line2); background: var(--panel); border-radius: 6px; padding: 6px 8px; min-width: 0;
 }
 textarea { width: 100%; resize: vertical; min-height: 34px; line-height: 1.4; }
@@ -253,6 +253,23 @@ pre { background: var(--panel2); border: 1px solid var(--line); border-radius: 6
 .statuslegend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
 .chart .wk-open { fill: var(--accent); } .chart .wk-closed { fill: var(--ok); }
 .chart .wk-line { fill: none; stroke: var(--ink); stroke-width: 2; } .chart .wk-dot { fill: var(--ink); }
+
+
+/* sign-in and accounts */
+[hidden] { display: none !important; }
+body.locked .app { display: none; }
+#auth { display: none; }
+body.locked #auth { display: flex; min-height: 100vh; align-items: center; justify-content: center; padding: 24px; background: var(--bg); }
+.authbox { width: 100%; max-width: 380px; background: var(--panel); border: 1px solid var(--line); border-top: 3px solid var(--brand); border-radius: 8px; padding: 24px 26px; box-shadow: var(--shadow, 0 2px 12px rgba(0,0,0,.08)); }
+.authbox .logo { height: 26px; display: block; margin-bottom: 8px; }
+.authbox h1 { margin: 0 0 14px; font-size: 22px; }
+#whoami { font-size: 13px; color: var(--ink2); white-space: nowrap; }
+#whoami a { color: var(--ink); text-decoration: none; }
+.rolechip { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; border: 1px solid var(--line); background: var(--panel2); color: var(--ink2); }
+.rolechip.admin { border-color: var(--brand); color: var(--brand); }
+.rolechip.analyst { border-color: var(--ink2); color: var(--ink); }
+.tokenbox { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+.tokenbox code { flex: 1; word-break: break-all; padding: 6px 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; }
 
 @media (max-width: 860px) {
   .app { grid-template-columns: 1fr; grid-template-rows: auto auto 1fr; height: auto; min-height: 100vh; }

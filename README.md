@@ -22,6 +22,8 @@ Data is stored in `data/siem.db` (SQLite). Set `IDS_SIEM_DB` to use another path
 | Detections | Tune the six rules; alerts keep their triage state when rules run again |
 | Event catalog | Severity and category per event type. Defaults are a starting point, adjust to your TARA |
 | Data | Import (CSV, XLSX, JSON), import history, data quality, settings |
+| Account | Change your password, create and revoke your own API tokens |
+| Users (admin) | Accounts and roles, sign-in and token rules, backend connection, all tokens, audit log |
 
 ## Detections
 
@@ -37,6 +39,24 @@ High-severity event, event burst (N events of one type on one vehicle in a windo
 
 `ids_siem/ingest.py` turns any source into the same row dicts. A REST client only has to fetch rows with the export's column names and call `import_rows(rows, source="api")`. Today you can also push JSON to `POST /api/ingest` (example on the Data page).
 
+## Sign-in, roles and API tokens
+
+The first start asks for the first administrator. After that everything needs a sign-in.
+
+| Role | May |
+|---|---|
+| viewer | read everything |
+| analyst | viewer, plus triage alerts, work cases, classify events, import data, run detections |
+| admin | analyst, plus users, settings, detection tuning, deleting imports, cases or all data, other people's tokens |
+
+API tokens belong to a user and have their own permission (`view`, `modify`, `full`) and expiry. The effective access is the lower of the token and the owner's role. Tokens cannot create tokens or change passwords. The administrator sets the longest lifetime, the default, and can switch tokens off entirely. A token is shown once and only its hash is stored.
+
+```
+curl -H "Authorization: Bearer ids_..." http://127.0.0.1:8765/api/summary
+```
+
+Notes and cases are attributed to the signed-in user. Locked out? Run `python run.py --reset-password USER` on the machine.
+
 ## Security
 
-Binds to 127.0.0.1 only, rejects non-loopback `Host` headers, and requires an `X-SIEM: 1` header on every write so other websites cannot trigger changes. There is no login: anyone with access to your machine's local ports can use it.
+Binds to 127.0.0.1 only, rejects non-loopback `Host` headers, and requires an `X-SIEM: 1` header on every write so other websites cannot trigger changes. Passwords are stored as scrypt hashes, sessions are HttpOnly SameSite=Strict cookies, an account locks for 5 minutes after 5 wrong passwords, and the database file is created readable by you only. The backend token (Users page) is stored in that database in clear text because it has to be sent to the backend, so protect the file and use a token with the least permission that works. Traffic is plain HTTP on localhost; do not expose the port to a network.
