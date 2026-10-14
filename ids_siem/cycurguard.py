@@ -19,9 +19,12 @@ from . import auth, db, ingest, rules, sevconfig
 PAGE = 5000                      # events per request (the backend's own cap is higher)
 OVERLAP_MS = 10 * 60 * 1000      # incremental syncs start this far before the last one ended
 SOURCE_FIELDS = ["id", "type", "report.event_type", "sev_metadata.timestamp", "cg_ingest_timestamp", "vin", "ecu_name", "ecu_id",
-                 "sev_metadata.event_id", "sev_metadata.name", "sev_metadata.description",
-                 "report.context_data", "report.raw_bytes", "report.sub_type_id", "sev_metadata.count", "nvm.uuid",
-                 "nvm.global_counter", "nvm.timestamp_earliest", "nvm.timestamp_latest", "input.message_data.timestamp"]
+                 "sev_metadata.event_id", "sev_metadata.name", "sev_metadata.description", "sev_metadata.count",
+                 # backend details; the backend returns a whole sub-object when its name is given (checked with tools/probe_backend.py)
+                 "report.severity", "report.type_name", "report.bus_name", "report.recurring", "report.sub_type_id", "report.raw_bytes",
+                 "report.fields", "report.context_data", "report.extra_data", "report.rule_details", "report.message_info",
+                 "report.signal_info", "nvm.uuid", "nvm.global_counter", "nvm.timestamp_earliest", "nvm.timestamp_latest",
+                 "input.message_data.timestamp"]
 TIMEOUT = 180
 
 
@@ -140,22 +143,87 @@ def to_row(rec):
             "description": rec.get("sev_metadata.description"), "extra": extras(rec)}
 
 
-EXTRA_MAP = {"count": "sev_metadata.count", "sub_type": "report.sub_type_id", "raw": "report.raw_bytes", "batch": "nvm.uuid",
-             "counter": "nvm.global_counter", "nvm_from": "nvm.timestamp_earliest", "nvm_to": "nvm.timestamp_latest",
-             "sent": "input.message_data.timestamp"}
+def dig(rec, path):
+    """Value at a dotted path, whether the record is nested JSON or has flat dotted keys."""
+    if path in rec:
+        return rec[path]
+    cur = rec
+    for part in path.split("."):
+        if isinstance(cur, dict) and part in cur:
+            cur = cur[part]
+        else:
+            return None
+    return cur
+
+
+def _sub(rec, path):
+    """The sub-object at `path` as a nested dict, from nested JSON or from flat dotted keys."""
+    v = dig(rec, path)
+    if isinstance(v, (dict, list)):
+        return v
+    pre = path + "."
+    flat = {k[len(pre):]: x for k, x in rec.items() if k.startswith(pre)}
+    if not flat:
+        return None
+    out = {}
+    for k, x in flat.items():
+        cur = out
+        parts = k.split(".")
+        for q in parts[:-1]:
+            cur = cur.setdefault(q, {})
+        cur[parts[-1]] = x
+    return out
+
+
+def _names(lst):
+    return [str(x.get("name")) for x in lst if isinstance(x, dict) and x.get("name")] if isinstance(lst, list) else []
 
 
 def extras(rec):
-    """Backend details beyond the basic columns: decoded context data and the report's counters, as a small dict."""
-    flat = _flatten(rec)
+    """Backend details beyond the basic columns, reduced to what an analyst reads: context values with labels, the CAN
+    message, the violated rule with its limits, signal values, counters and the report window."""
     out = {}
-    for short, key in EXTRA_MAP.items():
-        v = flat.get(key)
+    for short, key in (("count", "sev_metadata.count"), ("sev", "report.severity"), ("tn", "report.type_name"), ("bus", "report.bus_name"),
+                       ("rec", "report.recurring"), ("sub_type", "report.sub_type_id"), ("raw", "report.raw_bytes"), ("batch", "nvm.uuid"),
+                       ("counter", "nvm.global_counter"), ("nvm_from", "nvm.timestamp_earliest"), ("nvm_to", "nvm.timestamp_latest"),
+                       ("sent", "input.message_data.timestamp")):
+        v = dig(rec, key)
         if v is not None:
             out[short] = v
-    ctx = {k[len("report.context_data."):]: v for k, v in flat.items() if k.startswith("report.context_data.") and v is not None}
-    if ctx:
+    fields = _sub(rec, "report.fields")
+    if isinstance(fields, dict) and fields:
+        out["fields"] = [{k2: v for k2, v in (("n", n), ("label", f.get("label")), ("type", f.get("type")), ("v", f.get("value")),
+                                                ("vd", f.get("value_description")), ("d", f.get("description"))) if v not in (None, "")}
+                         for n, f in fields.items() if isinstance(f, dict)]
+    ctx = _sub(rec, "report.context_data")
+    if isinstance(ctx, dict) and ctx:
         out["ctx"] = ctx
+    mi = _sub(rec, "report.message_info")
+    if isinstance(mi, dict):
+        det = mi.get("details") if isinstance(mi.get("details"), dict) else {}
+        msg = {k: v for k, v in (("id", mi.get("id")), ("name", det.get("name")), ("len", mi.get("length")), ("ext", mi.get("has_extended_id")),
+                                 ("groups", det.get("message_group_names")), ("tx", _names(det.get("ecus_tx"))), ("rx", _names(det.get("ecus_rx"))))
+               if v not in (None, [], "")}
+        if msg:
+            out["msg"] = msg
+        sigs = mi.get("signals")
+        if isinstance(sigs, dict):
+            sl = [{"n": (x.get("details") or {}).get("name"), "raw": x.get("raw_value"), "val": x.get("scaled_value")}
+                  for x in sigs.values() if isinstance(x, dict)]
+            if sl:
+                out["sigs"] = sl[:40]
+    si = _sub(rec, "report.signal_info")
+    if isinstance(si, dict) and si:
+        out["sig"] = {"n": (si.get("details") or {}).get("name"), "raw": si.get("raw_value"), "val": si.get("scaled_value")}
+    rd = _sub(rec, "report.rule_details")
+    if isinstance(rd, dict) and rd:
+        rule = {k: v for k, v in (("type", rd.get("rule_type")), ("name", rd.get("rule_name")), ("limits", rd.get("rule")),
+                                  ("measured", rd.get("extra_data"))) if v not in (None, "", {}, [])}
+        if rule:
+            out["rule"] = rule
+    xd = _sub(rec, "report.extra_data")
+    if isinstance(xd, dict) and xd:
+        out["xd"] = xd
     return out
 
 
@@ -198,9 +266,10 @@ def preview(days=None):
     return {"version": v.get("version"), "mode": mode, "from_ms": from_ms, "total": total, "sample": sample}
 
 
+USED_PREFIX = ("report.context_data", "report.fields", "report.extra_data", "report.rule_details", "report.message_info", "report.signal_info")
 USED_FIELDS = {"id", "report.event_type", "type", "sev_metadata.timestamp", "cg_ingest_timestamp", "vin", "ecu_name", "ecu_id",
                "sev_metadata.event_id", "sev_metadata.name", "sev_metadata.description", "sev_metadata.count", "report.sub_type_id",
-               "report.raw_bytes", "nvm.uuid", "nvm.global_counter", "nvm.timestamp_earliest", "nvm.timestamp_latest",
+               "report.raw_bytes", "report.severity", "report.type_name", "report.bus_name", "report.recurring", "nvm.uuid", "nvm.global_counter", "nvm.timestamp_earliest", "nvm.timestamp_latest",
                "input.message_data.timestamp"}
 
 
@@ -239,7 +308,7 @@ def fields_probe(n=200):
                 e["examples"].append(t[:160] + ("…" if len(t) > 160 else ""))
     out = [{"field": e["field"], "present": e["present"], "types": sorted(e["types"]), "examples": e["examples"],
             "distinct": len(e["distinct"]) if len(e["distinct"]) < 50 else "50+",
-            "used": e["field"] in USED_FIELDS or e["field"].startswith("report.context_data") or e["field"].split("[")[0] in USED_FIELDS}
+            "used": e["field"] in USED_FIELDS or e["field"].startswith(USED_PREFIX) or e["field"].split("[")[0] in USED_FIELDS}
            for e in seen.values()]
     out.sort(key=lambda e: (e["used"], -e["present"], e["field"]))
     return {"records": len(recs), "fields": out}

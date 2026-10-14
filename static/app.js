@@ -227,20 +227,51 @@ ROUTES.events = async function (_, P) {
 
 function backendHtml(e) {
   const b = e.backend || {}, cf = e.configured;
-  const rows = [];
-  if (cf) {
-    rows.push(['Configured meaning', esc(cf.description)]);
-    if (cf.type_name) rows.push(['Configured name', `<span class="mono">${esc(cf.type_name)}</span>`]);
+  const kv = (rows) => rows.length ? `<dl class="kv">${rows.map(r => `<dt>${r[0]}</dt><dd>${r[1]}</dd>`).join('')}</dl>` : '';
+  const mono = v => `<span class="mono">${esc(v)}</span>`;
+  let out = '';
+  // what the event is
+  const head = [];
+  if (b.sev != null) head.push(['CycurGUARD severity', `${esc(b.sev)} <span class="muted">of 1 to 3, set by the backend</span>`]);
+  if (b.tn) head.push(['Report type', mono(b.tn)]);
+  if (cf && cf.description) head.push(['Configured meaning', esc(cf.description)]);
+  if (b.bus) head.push(['Bus', esc(b.bus)]);
+  const fields = b.fields || (cf ? cf.context.map(c => ({ n: c.name, v: c.value, vd: c.meaning, type: c.type })) : Object.entries(b.ctx || {}).map(([n, v]) => ({ n, v })));
+  for (const f of fields) head.push([esc(f.label || f.n), `${f.v != null ? mono(f.v) : ''}${f.vd ? ` <span class="muted">${esc(f.vd)}</span>` : ''}`]);
+  out += kv(head);
+  // the CAN message and the rule it broke
+  if (b.msg) {
+    const m = b.msg;
+    out += `<h3>CAN message</h3>` + kv([
+      ['Message', `${m.name ? mono(m.name) + ' ' : ''}<span class="muted">id ${esc(m.id)}${m.ext ? ', extended' : ''}, ${esc(m.len)} bytes</span>`],
+      ...(m.tx && m.tx.length ? [['Sent by', esc(m.tx.join(', '))]] : []),
+      ...(m.rx && m.rx.length ? [['Received by', esc(m.rx.join(', '))]] : []),
+      ...(m.groups && m.groups.length ? [['Group', esc(m.groups.join(', '))]] : [])]);
   }
-  const ctx = cf ? cf.context : Object.entries(b.ctx || {}).map(([name, value]) => ({ name, value, meaning: null }));
-  for (const c of ctx) rows.push([`Value: ${esc(c.name)}`, `<span class="mono">${esc(c.value)}</span>${c.meaning ? ` <span class="muted">${esc(c.meaning)}</span>` : ''}`]);
-  if (b.count != null) rows.push(['Occurrences in report', esc(b.count)]);
-  if (b.raw) rows.push(['Raw bytes (base64)', `<span class="mono">${esc(b.raw)}</span>`]);
-  if (b.counter != null) rows.push(['Global counter', esc(b.counter)]);
-  if (b.batch) rows.push(['Report batch', `<span class="mono">${esc(b.batch)}</span>`]);
-  if (b.nvm_from != null) rows.push(['Report covers (UTC)', `${fmtTs(b.nvm_from, 1)} to ${b.nvm_to != null ? fmtTs(b.nvm_to, 1) : '?'}`]);
-  if (b.sent != null) rows.push(['Sent by vehicle (UTC)', fmtTs(b.sent, 1)]);
-  return rows.length ? `<h3>Backend details</h3><dl class="kv">${rows.map(r => `<dt>${r[0]}</dt><dd>${r[1]}</dd>`).join('')}</dl>` : '';
+  if (b.rule) {
+    const lim = Object.entries(b.rule.limits || {}).map(([k, v]) => `${esc(k.replace(/_/g, ' '))}: <span class="mono">${esc(v)}</span>`).join('<br>');
+    const meas = Array.isArray(b.rule.measured) ? b.rule.measured[0] : b.rule.measured;
+    const mm = Object.entries(meas || {}).map(([k, v]) => `${esc(k.replace(/_/g, ' '))}: <span class="mono">${esc(v)}</span>`).join('<br>');
+    out += `<h3>Violated rule</h3>` + kv([['Check', `${esc(b.rule.type || '')} ${b.rule.name ? mono(b.rule.name) : ''}`],
+      ...(lim ? [['Limits', lim]] : []), ...(mm ? [['Measured', mm]] : [])]);
+  }
+  if (b.xd) out += kv(Object.entries(b.xd).map(([k, v]) => [esc(k.replace(/_/g, ' ')), mono(v)]));
+  if (b.sigs && b.sigs.length) {
+    const hit = b.sig && b.sig.n;
+    out += `<h3>Signals in the message</h3><div class="tablewrap"><table><thead><tr><th>Signal</th><th class="num">Raw</th><th class="num">Value</th></tr></thead><tbody>${b.sigs.map(x => `<tr${x.n === hit ? ' class="row"' : ''}><td class="mono">${esc(x.n)}${x.n === hit ? ' <span class="muted">(checked)</span>' : ''}</td><td class="num">${esc(x.raw)}</td><td class="num">${esc(x.val)}</td></tr>`).join('')}</tbody></table></div>`;
+  } else if (b.sig) {
+    out += kv([['Signal', `${mono(b.sig.n)} raw ${esc(b.sig.raw)}, value ${esc(b.sig.val)}`]]);
+  }
+  // report
+  const rep = [];
+  if (b.count != null) rep.push(['Occurrences in report', esc(b.count)]);
+  if (b.nvm_from != null) rep.push([e.ts == null ? 'Happened between (UTC)' : 'Report covers (UTC)', `${fmtTs(b.nvm_from, 1)}${b.nvm_to !== b.nvm_from ? ` to ${b.nvm_to != null ? fmtTs(b.nvm_to, 1) : '?'}` : ''}`]);
+  if (b.sent != null) rep.push(['Sent by vehicle (UTC)', fmtTs(b.sent, 1)]);
+  if (b.counter != null) rep.push(['Global counter', esc(b.counter)]);
+  if (b.batch) rep.push(['Report batch', mono(b.batch)]);
+  if (b.raw) rep.push(['Raw bytes (base64)', mono(b.raw)]);
+  out += kv(rep);
+  return out ? `<h3>Backend details</h3>${out}` : '';
 }
 
 async function openEvent(id) {
