@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fleet IDS</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<aside id="rail">
+  <div class="brand">Fleet IDS<small>Vehicle event analysis</small></div>
+  <nav id="nav">
+    <a href="#/overview" data-r="overview">Overview</a>
+    <a href="#/events" data-r="events">Events</a>
+    <a href="#/vehicles" data-r="vehicles">Vehicles</a>
+    <a href="#/alerts" data-r="alerts">Alerts <span class="badge" id="alert-badge" hidden></span></a>
+    <a href="#/detections" data-r="detections">Detections</a>
+    <a href="#/catalog" data-r="catalog">Event catalog</a>
+    <a href="#/data" data-r="data">Data</a>
+  </nav>
+  <div class="foot" id="foot"></div>
+</aside>
+<main id="view"></main>
+<div id="scrim"></div>
+<aside id="drawer" aria-hidden="true"></aside>
+<div id="toast" role="status"></div>
+<script src="/core.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
