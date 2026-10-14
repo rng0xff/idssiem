@@ -2,6 +2,10 @@
 
 Alerts are upserted by a deterministic key, so re-running the rules never loses analyst triage
 (status, assignee, comments). A resolved alert is re-opened if new events show up for it.
+
+Suppression rules silence known-benign patterns: a matching alert gets the status 'suppressed' (it stays
+visible on its own tab and is counted), and returns to 'new' when the rule is disabled, deleted or expired.
+Alerts that someone already works on (in progress, in a case) are never suppressed.
 """
 import datetime
 import json
@@ -173,12 +177,144 @@ RULES = {"high_sev": rule_high_sev, "burst": rule_burst, "multi_ecu": rule_multi
          "vehicle_outlier": rule_vehicle_outlier, "fleet_spike": rule_fleet_spike, "new_event_type": rule_new_event_type}
 
 
+# ------------------------------------------------------------------ suppression
+def _active_suppressions(c, now):
+    return [dict(r) for r in c.execute(
+        "SELECT * FROM suppressions WHERE enabled=1 AND (expires_at IS NULL OR expires_at > ?) ORDER BY id", (now,))]
+
+
+def _first_match(sups, rule, vin, ecu, cat):
+    for s in sups:
+        if s["rule"] and s["rule"] != rule:
+            continue
+        if s["vin"] and s["vin"] != (vin or ""):
+            continue
+        if s["ecu_name"] and s["ecu_name"] != (ecu or ""):
+            continue
+        if s["cat_id"] and s["cat_id"] != (cat or ""):
+            continue
+        return s
+    return None
+
+
+def _sweep(c, sups, now):
+    """Alerts still marked suppressed although no active rule matches them any more go back to 'new'."""
+    n = 0
+    for r in c.execute("SELECT id, rule, vin, ecu_name, cat_id FROM alerts WHERE status='suppressed'").fetchall():
+        if not _first_match(sups, r["rule"], r["vin"], r["ecu_name"], r["cat_id"]):
+            c.execute("UPDATE alerts SET status='new', updated_at=? WHERE id=?", (now, r["id"]))
+            c.execute("INSERT INTO alert_comments(alert_id, author, body, created_at) VALUES(?,?,?,?)",
+                      (r["id"], "system", "No suppression rule applies any more. Back to new.", now))
+            n += 1
+    return n
+
+
+def sweep_expired():
+    """Cheap check used when alerts are listed, so an expired rule stops hiding alerts without a detection run."""
+    c = db.conn()
+    if not c.execute("SELECT 1 FROM alerts WHERE status='suppressed' LIMIT 1").fetchone():
+        return 0
+    now = db.now_ms()
+    c.execute("BEGIN")
+    try:
+        n = _sweep(c, _active_suppressions(c, now), now)
+        c.execute("COMMIT")
+    except Exception:
+        c.execute("ROLLBACK")
+        raise
+    return n
+
+
+SUPPRESSION_FIELDS = ("rule", "vin", "ecu_name", "cat_id")
+
+
+def _sup_row(r, suppressed_alerts, now):
+    d = dict(r)
+    d["expired"] = bool(d["expires_at"]) and d["expires_at"] <= now
+    d["active"] = bool(d["enabled"]) and not d["expired"]
+    d["rule_title"] = RULE_INFO.get(d["rule"], (d["rule"], ""))[0] if d["rule"] else ""
+    d["alerts_now"] = sum(1 for a in suppressed_alerts if _first_match([d], a["rule"], a["vin"], a["ecu_name"], a["cat_id"]))
+    return d
+
+
+def list_suppressions():
+    c = db.conn()
+    now = db.now_ms()
+    sa = c.execute("SELECT rule, vin, ecu_name, cat_id FROM alerts WHERE status='suppressed'").fetchall()
+    cat = {r["cat_id"]: r["short_name"] for r in c.execute("SELECT cat_id, short_name FROM catalog")}
+    out = []
+    for r in c.execute("SELECT * FROM suppressions ORDER BY id DESC"):
+        d = _sup_row(r, sa, now)
+        d["event_name"] = cat.get(d["cat_id"], "") if d["cat_id"] else ""
+        out.append(d)
+    return out
+
+
+def create_suppression(body):
+    vals = {k: str(body.get(k) or "").strip()[:200] for k in SUPPRESSION_FIELDS}
+    if vals["vin"]:
+        vals["vin"] = vals["vin"].upper()
+    if vals["rule"] and vals["rule"] not in RULE_INFO:
+        raise ValueError("unknown detection")
+    if not any(vals.values()):
+        raise ValueError("Choose at least one of detection, vehicle, ECU or event type. A rule for everything would hide every alert.")
+    reason = str(body.get("reason") or "").strip()
+    if len(reason) < 5:
+        raise ValueError("Give a reason (at least 5 characters). It is shown on every suppressed alert and kept in the audit log.")
+    days = body.get("days", 90)
+    try:
+        days = int(days)
+    except (TypeError, ValueError):
+        raise ValueError("days must be a number")
+    if days < 0 or days > 3650:
+        raise ValueError("days must be between 0 (no expiry) and 3650")
+    now = db.now_ms()
+    who = auth.current_name()
+    c = db.conn()
+    dup = c.execute("SELECT id FROM suppressions WHERE rule=? AND vin=? AND ecu_name=? AND cat_id=? AND enabled=1 AND (expires_at IS NULL OR expires_at>?)",
+                    (vals["rule"], vals["vin"], vals["ecu_name"], vals["cat_id"], now)).fetchone()
+    if dup:
+        raise ValueError(f"An identical active rule already exists (#{dup['id']}).")
+    cur = c.execute("INSERT INTO suppressions(rule, vin, ecu_name, cat_id, reason, created_by, created_at, expires_at, enabled) VALUES(?,?,?,?,?,?,?,?,1)",
+                    (vals["rule"], vals["vin"], vals["ecu_name"], vals["cat_id"], reason[:500], who, now, now + days * 86400000 if days else None))
+    c.commit()
+    sid = cur.lastrowid
+    scope = ", ".join(f"{k}={v}" for k, v in vals.items() if v)
+    auth.log(auth.current_actor(), "suppression.create", f"{scope}; {'expires in %d days' % days if days else 'no expiry'}; reason: {reason[:200]}", target=f"suppression:{sid}")
+    return sid
+
+
+def update_suppression(sid, body):
+    c = db.conn()
+    r = c.execute("SELECT * FROM suppressions WHERE id=?", (sid,)).fetchone()
+    if not r:
+        return False
+    if "enabled" in body:
+        en = 1 if body["enabled"] else 0
+        c.execute("UPDATE suppressions SET enabled=? WHERE id=?", (en, sid))
+        auth.log(auth.current_actor(), "suppression.enable" if en else "suppression.disable", "", target=f"suppression:{sid}")
+    c.commit()
+    return True
+
+
+def delete_suppression(sid):
+    c = db.conn()
+    r = c.execute("SELECT * FROM suppressions WHERE id=?", (sid,)).fetchone()
+    if not r:
+        return False
+    c.execute("DELETE FROM suppressions WHERE id=?", (sid,))
+    c.commit()
+    auth.log(auth.current_actor(), "suppression.delete", f"reason was: {r['reason'][:200]}", target=f"suppression:{sid}")
+    return True
+
+
 # ------------------------------------------------------------------ runner
 def run_all():
     c = db.conn()
     cfg = db.get_settings()["rules"]
     now = db.now_ms()
-    stats = {"created": 0, "updated": 0, "reopened": 0, "per_rule": {}}
+    stats = {"created": 0, "updated": 0, "reopened": 0, "suppressed": 0, "unsuppressed": 0, "per_rule": {}}
+    sups = _active_suppressions(c, now)
     c.execute("BEGIN")
     try:
         for name, fn in RULES.items():
@@ -190,14 +326,27 @@ def run_all():
                 n += 1
                 row = c.execute("SELECT id, status, event_count FROM alerts WHERE alert_key=?", (a["key"],)).fetchone()
                 details, flt = json.dumps(a["details"]), json.dumps(a["filter"])
+                hit = _first_match(sups, a["rule"], a["vin"], a["ecu"], a["cat"])
                 if row is None:
                     c.execute("INSERT INTO alerts(alert_key, rule, title, severity, sev_num, vin, ecu_name, cat_id, first_ts, last_ts, event_count, "
-                              "status, details, filter, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,'new',?,?,?,?)",
+                              "status, details, filter, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                               (a["key"], a["rule"], a["title"], a["severity"], SEV_NUM[a["severity"]], a["vin"], a["ecu"], a["cat"],
-                               a["first_ts"], a["last_ts"], a["count"], details, flt, now, now))
+                               a["first_ts"], a["last_ts"], a["count"], "suppressed" if hit else "new", details, flt, now, now))
                     stats["created"] += 1
+                    if hit:
+                        stats["suppressed"] += 1
                 else:
                     status = row["status"]
+                    if status == "new" and hit:
+                        status = "suppressed"
+                        stats["suppressed"] += 1
+                        c.execute("INSERT INTO alert_comments(alert_id, author, body, created_at) VALUES(?,?,?,?)",
+                                  (row["id"], "system", f"Suppressed by rule #{hit['id']}: {hit['reason']}", now))
+                    elif status == "suppressed" and not hit:
+                        status = "new"
+                        stats["unsuppressed"] += 1
+                        c.execute("INSERT INTO alert_comments(alert_id, author, body, created_at) VALUES(?,?,?,?)",
+                                  (row["id"], "system", "No suppression rule applies any more. Back to new.", now))
                     if status in ("resolved", "false_positive") and a["count"] > row["event_count"]:
                         status = "new"
                         c.execute("INSERT INTO alert_comments(alert_id, author, body, created_at) VALUES(?,?,?,?)",
@@ -221,6 +370,7 @@ def run_all():
         # A new_event_type alert whose catalog entry has since been classified is no longer relevant
         c.execute("UPDATE alerts SET status='resolved', updated_at=? WHERE rule='new_event_type' AND status IN ('new','in_progress') "
                   "AND cat_id IN (SELECT cat_id FROM catalog WHERE auto=0)", (now,))
+        stats["unsuppressed"] += _sweep(c, sups, now)
         c.execute("COMMIT")
     except Exception:
         c.execute("ROLLBACK")
@@ -241,6 +391,7 @@ def _alert_row(r):
 
 
 def list_alerts(p):
+    sweep_expired()
     c = db.conn()
     w, a = ["1=1"], []
     for key, col in (("status", "alerts.status"), ("severity", "alerts.severity"), ("rule", "alerts.rule")):

@@ -21,7 +21,7 @@ function fmtTs(ms, ok = true) {
 function fmtDay(ms) { return ms == null ? '' : new Date(ms).toISOString().slice(0, 10); }
 function fmtMin(ms) { return new Date(ms).toISOString().slice(0, 16).replace('T', ' '); }
 const sevHtml = s => `<span class="sev ${esc(s)}">${esc(s)}</span>`;
-const statusLabel = s => ({ new: 'New', in_progress: 'In progress', resolved: 'Resolved', false_positive: 'False positive' }[s] || s);
+const statusLabel = s => ({ new: 'New', in_progress: 'In progress', resolved: 'Resolved', false_positive: 'False positive', suppressed: 'Suppressed' }[s] || s);
 const caseStatusLabel = s => ({ open: 'Open', investigating: 'Investigating', waiting: 'Waiting', closed: 'Closed' }[s] || s);
 const caseStatusHtml = s => `<span class="status ${esc(s)}">${esc(caseStatusLabel(s))}</span>`;
 const statusHtml = s => `<span class="status ${esc(s)}">${esc(statusLabel(s))}</span>`;

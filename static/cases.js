@@ -56,7 +56,7 @@ async function viewCasesDashboard() {
     <div class="fig"><div class="n">${d.mean_days_to_close === null ? 'none' : d.mean_days_to_close + ' d'}</div><div class="l">Mean time to close</div><div class="s">${d.mean_days_to_close === null ? 'no case closed in the last 90 days' : `median ${d.median_days_to_close} d, ${d.closed_sample} case${d.closed_sample > 1 ? 's' : ''} in the last 90 days`}</div></div>
   </div>
   ${d.total ? `
-  <div class="grid2" style="grid-template-columns:repeat(auto-fit,minmax(420px,1fr))">
+  <div class="grid2" style="grid-template-columns:repeat(auto-fit,minmax(min(420px,100%),1fr))">
     <div class="panel"><h2>Where the cases stand</h2>
       <div class="pipeline" role="img" aria-label="Cases by status">${STATUS_ORDER.map(s => bs[s] ? `<div class="p-${s}" style="flex:${bs[s]}" title="${caseStatusLabel(s)}: ${bs[s]}">${bs[s]}</div>` : '').join('')}</div>
       <div class="statuslegend">${STATUS_ORDER.map(s => `<span><i class="p-${s}" style="background:${STATUS_COLOR[s]}"></i>${caseStatusLabel(s)} ${bs[s]}</span>`).join('')}</div>
@@ -146,6 +146,7 @@ async function viewCase(id, keepScroll = false) {
   const sc = keepScroll ? $('#main').scrollTop : 0;
   const closed = c.status === 'closed';
   view.innerHTML = `<div class="page-head"><a href="#/cases">Cases</a><h1>Case #${c.id}</h1>${caseStatusHtml(c.status)} ${sevHtml(c.severity)}<span class="spacer"></span>
+    <a class="btn" href="/api/cases/${c.id}/report" target="_blank" rel="noopener">Export report</a>
     ${closed ? '<button class="btn" data-cact="reopen">Reopen case</button>' : '<button class="btn primary" data-cact="close">Close case</button>'}
     <button class="btn ghost danger" data-cact="delete">Delete</button></div>
   ${closed ? `<div class="closedbox"><h3>Closed: ${esc(c.resolution_label)}</h3><div class="muted">${esc(fmtMin(c.closed_at))} UTC, after ${c.age_days} days</div>${c.findings ? `<p style="margin:8px 0 0;white-space:pre-wrap">${esc(c.findings)}</p>` : ''}</div>` : ''}

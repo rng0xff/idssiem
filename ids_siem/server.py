@@ -141,6 +141,34 @@ def api_alert_bulk(h, p):
         raise HttpError(400, str(e))
 
 
+@route("GET", "/api/suppressions")
+def api_suppressions(h, p):
+    return rules.list_suppressions()
+
+
+@route("POST", "/api/suppressions", level=2)
+def api_suppression_create(h, p):
+    try:
+        sid = rules.create_suppression(h.json_body())
+    except ValueError as e:
+        raise HttpError(400, str(e))
+    return {"id": sid, "detections": rules.run_all()}
+
+
+@route("PATCH", r"/api/suppressions/(\d+)", level=2)
+def api_suppression_update(h, p, sid):
+    if not rules.update_suppression(int(sid), h.json_body()):
+        raise HttpError(404, "suppression rule not found")
+    return {"detections": rules.run_all()}
+
+
+@route("DELETE", r"/api/suppressions/(\d+)", level=2)
+def api_suppression_delete(h, p, sid):
+    if not rules.delete_suppression(int(sid)):
+        raise HttpError(404, "suppression rule not found")
+    return {"detections": rules.run_all()}
+
+
 @route("POST", "/api/detections/run")
 def api_run(h, p):
     return rules.run_all()
@@ -360,6 +388,13 @@ def api_cases(h, p):
 @route("POST", "/api/cases")
 def api_case_create(h, p):
     return _case_call(cases.create_case, h.json_body())
+
+
+@route("GET", r"/api/cases/(\d+)/report")
+def api_case_report(h, p, cid):
+    from . import report
+    html = _case_call(report.render, int(cid))
+    return ("raw", "text/html; charset=utf-8", html.encode("utf-8"), {})
 
 
 @route("GET", "/api/cases/dashboard")

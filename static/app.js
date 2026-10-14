@@ -328,7 +328,7 @@ ROUTES.vehicle = async function (vin) {
 };
 
 /* ---------------------------------------------------------------- alerts */
-const TABS = [['open', 'Open', 'new,in_progress'], ['all', 'All', ''], ['resolved', 'Resolved', 'resolved'], ['false_positive', 'False positive', 'false_positive']];
+const TABS = [['open', 'Open', 'new,in_progress'], ['all', 'All', ''], ['resolved', 'Resolved', 'resolved'], ['false_positive', 'False positive', 'false_positive'], ['suppressed', 'Suppressed', 'suppressed']];
 ROUTES.alerts = async function (arg, P) {
   const raw = paramsObj(P);
   const tab = raw.tab || 'open';
@@ -398,6 +398,7 @@ async function openAlert(id) {
     <h3>Case</h3>
     ${a.case ? `<p style="margin:0"><a href="${hashFor('cases', {}, a.case.id)}">Case #${a.case.id}: ${esc(a.case.title)}</a> ${caseStatusHtml(a.case.status)}</p>`
       : `<p style="margin:0"><button class="btn primary" data-act="new-case" data-id="${a.id}">Create case</button> <button class="btn" data-act="link-case" data-id="${a.id}">Add to existing case</button></p>`}
+    ${a.status === 'suppressed' ? `<p class="note" style="margin:14px 0 0">A suppression rule hides this alert from the open list. See <a href="#/detections">Detections</a>.</p>` : (ME && ME.level >= 2 ? `<p style="margin:10px 0 0"><button class="btn" data-act="suppress" data-id="${a.id}">Suppress similar alerts</button></p>` : '')}
     <h3>Assignee</h3>
     <p style="margin:0"><input type="text" id="assignee" list="userlist" value="${esc(a.assignee)}" placeholder="Name" style="width:200px"> <button class="btn small" data-act="set-assignee" data-id="${a.id}">Save</button></p>
     <h3>Notes and history</h3>
@@ -409,6 +410,7 @@ $('#drawer').addEventListener('click', async e => {
   const b = e.target.closest('[data-act]'); if (!b) return;
   const id = +b.dataset.id, act = b.dataset.act;
   if (act === 'new-case') { openCaseForm([id]).catch(err => toast(err.message, true)); return; }
+  if (act === 'suppress') { openSuppressForm(id).catch(err => toast(err.message, true)); return; }
   if (act === 'link-case') { openLinkCase(id).catch(err => toast(err.message, true)); return; }
   try {
     if (act === 'set-status') await api('/api/alerts/' + id, { method: 'PATCH', json: { status: b.dataset.status } });
@@ -431,7 +433,9 @@ ROUTES.detections = async function () {
       ? `<label>${label[k]}<select data-p="${k}">${SEVS.map(s => `<option ${s === v ? 'selected' : ''}>${s}</option>`).join('')}</select></label>`
       : `<label>${label[k] || esc(k)}<input type="number" step="any" data-p="${k}" value="${esc(v)}"></label>`).join('')}</div></div></div>`).join('')}
     <p style="margin:16px 0 0"><button class="btn primary" id="saverules">Save and run detections</button></p></div>
-  <p class="muted">Alerts keep their status, assignee and notes when detections run again. A resolved alert re-opens when new matching events arrive.</p>`;
+  <p class="muted">Alerts keep their status, assignee and notes when detections run again. A resolved alert re-opens when new matching events arrive.</p>
+  <div class="panel" id="suppanel"></div>`;
+  renderSuppressions();
   $('#saverules').addEventListener('click', async () => {
     const out = {};
     $$('.ruleblock').forEach(b => {

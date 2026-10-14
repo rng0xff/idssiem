@@ -17,14 +17,27 @@ Data is stored in `data/siem.db` (SQLite). Set `IDS_SIEM_DB` to use another path
 | Overview | Fleet figures, events over time (drag to select a period), top event types, vehicles and ECUs, open alerts |
 | Events | Search with `vin:` `ecu:` `sev:` `name:` `id:` `type:` `cat:` `desc:` `ts:invalid`, `-` to negate, plus facets, time range, detail drawer with analyst notes, CSV export of the current result |
 | Vehicles | Risk ranking, per-vehicle timeline, what each ECU reported, alerts, and the model year, body, engine, hand of drive and market decoded from the VIN |
-| Alerts | Triage queue: status (new, in progress, resolved, false positive), assignee, notes, history, bulk actions |
-| Cases | Create a case from one or more alerts (alert drawer or bulk action). Checklist (default tasks editable on the Data page), owner, due date, activity log, link or unlink alerts, close with a resolution (open alerts can be resolved with it), reopen. The dashboard shows status, overdue, ownerless, age, opened vs closed per week, time to close, severity, owners and resolutions |
-| Detections | Tune the six rules; alerts keep their triage state when rules run again |
+| Alerts | Triage queue: status (new, in progress, resolved, false positive, suppressed), assignee, notes, history, bulk actions |
+| Cases | Create a case from one or more alerts (alert drawer or bulk action). Checklist (default tasks editable on the Data page), owner, due date, activity log, link or unlink alerts, close with a resolution (open alerts can be resolved with it), reopen, **Export report** (printable page, save as PDF from the print dialog). The dashboard shows status, overdue, ownerless, age, opened vs closed per week, time to close, severity, owners and resolutions |
+| Detections | Tune the six rules; suppression rules for known-benign patterns; alerts keep their triage state when rules run again |
 | Event catalog | Severity and category per event type. Defaults are a starting point, adjust to your TARA |
 | Data | Sync from CycurGUARD, import (CSV, XLSX, JSON), import history, data quality, settings |
 | Account | Change your password, create and revoke your own API tokens |
 | Users (admin) | Accounts and roles, sign-in and token rules, backend connection, all tokens |
 | Audit log (admin) | Who did what and when: search, filter by person, action group or date, export CSV, verify integrity |
+
+## Suppression rules
+
+For patterns you have judged harmless (for example an event type that a bench tool always triggers). Create one from an alert (**Suppress similar alerts**) or on the Detections page. A rule matches on detection, ECU, event type and vehicle; empty fields match anything, at least one is required. It needs a reason and has an expiry (90 days preset, or none).
+
+- Matching alerts get the status **Suppressed**: they leave the open list, stay on the Suppressed tab and carry the rule and reason in their history. Events are never hidden.
+- Alerts someone already works on (in progress or in a case) are not suppressed.
+- Switching a rule off, deleting it or letting it expire returns its alerts to New.
+- Analysts and admins can create, switch off and delete rules. Every change is in the audit log (`suppression.*`).
+
+## Case report
+
+**Export report** on a case opens a printable page: facts, summary, findings and decision, vehicles with their decoded VIN, linked alerts, checklist and the full activity log, all in UTC. Use the browser's print dialog and choose Save as PDF. Each export is written to the audit log (`case.report`). Text from the case is HTML-escaped; the page needs no network.
 
 ## VIN decoding
 
@@ -87,7 +100,7 @@ Every state-changing action is recorded with time, person, channel (session or A
 
 - sign-ins, failed sign-ins (including unknown usernames), sign-outs, password changes, denied requests
 - users and API tokens, rule and backend changes, settings
-- alert status, assignee and notes; case creation, changes, tasks, notes, links, close, reopen, delete
+- alert status, assignee and notes; suppression rules created, switched on or off and deleted; case reports generated; case creation, changes, tasks, notes, links, close, reopen, delete
 - event notes, event catalog changes, detection runs, imports, JSON ingests, import removal, deleting all data, CSV exports
 
 Note text is not copied into the log, only that a note was added. Entries cannot be changed or deleted in the application, and "Delete all data" leaves them alone. Each entry carries a hash of its content and the previous entry, and **Verify integrity** on the Audit log page reports where the chain breaks. That detects edits and deleted entries in the middle of the log. Someone who can write the database file could recompute the chain, and cutting off the newest entries goes unnoticed unless you noted the latest hash, so treat it as evidence, not a vault. Only administrators can read it.

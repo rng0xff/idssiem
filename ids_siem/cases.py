@@ -74,10 +74,10 @@ def _link_alerts(c, case_id, alert_ids, now):
         c.execute("INSERT INTO case_alerts(case_id, alert_id, linked_at) VALUES(?,?,?)", (case_id, aid, now))
         c.execute("INSERT INTO alert_comments(alert_id, author, body, created_at) VALUES(?,?,?,?)",
                   (aid, "system", f"{who} linked this alert to case #{case_id}", now))
-        if a["status"] == "new":
+        if a["status"] in ("new", "suppressed"):
             c.execute("UPDATE alerts SET status='in_progress', updated_at=? WHERE id=?", (now, aid))
             c.execute("INSERT INTO alert_comments(alert_id, author, body, created_at) VALUES(?,?,?,?)",
-                      (aid, "system", f"{who} changed status: new → in_progress (case #{case_id})", now))
+                      (aid, "system", f"{who} changed status: {a['status']} → in_progress (case #{case_id})", now))
         _log(c, case_id, "system", f"Alert #{aid} linked: {a['title']}", now, author=who, action="case.link")
 
 
