@@ -74,6 +74,8 @@ python idssiem.py --sync --days 90  # first run: only the last 90 days
 - Use a CycurGUARD API token with view permission for reports. A short-lived login token stops working after a while and the sync then reports that the token was refused.
 - Timing: about 9 seconds for 100,000 events on a synthetic backend, so roughly a minute and a half per million plus network time. The pages of the app stay fast at 100,000 events; at a million, the vehicle ranking and the filters take several seconds.
 
+**Automatic sync.** An administrator can switch on a schedule under **Users → Backend connection → Automatic sync** (every 5, 15, 30 minutes, or 1, 3, 6, 12, 24 hours). While the tool is running it pulls new events in the background, continuing where the last sync ended. Automatic runs only start once a person has done the first sync (they choose how far back it goes). A run that finds nothing new is not written to the audit log; runs with new events and failures are (actor `schedule`), and so is every change of the schedule (`sync.schedule`). The Data page shows the interval and the next run. If the tool is not running, nothing is pulled; the next run follows after it starts.
+
 `POST /api/ingest` still accepts JSON from any other source.
 
 ## Sign-in, roles and API tokens

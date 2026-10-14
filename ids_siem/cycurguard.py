@@ -10,6 +10,7 @@ import json
 import re
 import ssl
 import threading
+import time
 import urllib.error
 import urllib.request
 
@@ -152,7 +153,7 @@ def status():
     cfg = config()
     p = _private()
     return {"configured": bool(cfg["base_url"] and cfg["token"]), "base_url": cfg["base_url"], "state": dict(STATE),
-            "cursor_ms": p["cursor_ms"], "last_run": p["last_run"], "last_result": p["last_result"]}
+            "cursor_ms": p["cursor_ms"], "last_run": p["last_run"], "last_result": p["last_result"], "schedule": schedule()}
 
 
 def start_window(days):
@@ -200,14 +201,15 @@ def run(days=None, actor="system", progress=None):
     return _execute(days, actor, progress)
 
 
-def _execute(days, actor, progress=None):
+def _execute(days, actor, progress=None, quiet=False):
     cfg = config()
     imp = None
     try:
         from_ms, mode = start_window(days)
         up_to = db.now_ms()
         STATE.update(mode=mode, from_ms=from_ms, up_to_ms=up_to, phase="counting")
-        auth.log(actor, "sync.start", f"{mode}; backend {cfg['base_url']}", via="sync")
+        if not quiet:
+            auth.log(actor, "sync.start", f"{mode}; backend {cfg['base_url']}", via="sync")
         STATE["total"] = count(cfg, from_ms, up_to)
         imp = ingest.Importer("CycurGUARD sync", "cycurguard", by_id=True)
         cursor, newest = from_ms, from_ms or 0
@@ -243,8 +245,9 @@ def _execute(days, actor, progress=None):
         res["detections"] = rules.run_all()
         res["newest_ms"] = newest
         _save_cursor(newest, {k: res[k] for k in ("rows_total", "rows_new", "rows_duplicate", "rows_matched_to_earlier_import")})
-        auth.log(actor, "sync.finish", f"{res['rows_new']} new, {res['rows_duplicate']} already present, "
-                 f"{res['rows_matched_to_earlier_import']} matched to earlier file imports", via="sync")
+        if not quiet or res["rows_new"]:  # a scheduled run that found nothing new stays out of the audit log
+            auth.log(actor, "sync.finish", f"{res['rows_new']} new, {res['rows_duplicate']} already present, "
+                     f"{res['rows_matched_to_earlier_import']} matched to earlier file imports", via="sync")
         STATE["result"] = res
         return res
     except Exception as e:
@@ -298,3 +301,68 @@ def test_connection(base_url=None, token=None):
         raise BackendError(f"The backend answered (version {out['version']}), but: {e}", e.code)
     out["ms"] = int((time.time() - t0) * 1000)
     return out
+
+
+# ------------------------------------------------------------------ schedule
+TICK = 20  # seconds between checks of the schedule
+SCHEDULE_DEFAULT = {"enabled": False, "minutes": 60, "last_attempt": None}
+MINUTES = (5, 15, 30, 60, 180, 360, 720, 1440)
+
+
+def schedule():
+    s = auth._get_private("_sync_schedule", SCHEDULE_DEFAULT)
+    nxt = (s["last_attempt"] or db.now_ms()) + s["minutes"] * 60000 if s["enabled"] else None
+    return {"enabled": bool(s["enabled"]), "minutes": s["minutes"], "last_attempt": s["last_attempt"], "next_run": nxt,
+            "choices": list(MINUTES), "needs_first_sync": not _private()["cursor_ms"]}
+
+
+def put_schedule(new, actor):
+    cur = auth._get_private("_sync_schedule", SCHEDULE_DEFAULT)
+    if "minutes" in new:
+        try:
+            m = int(new["minutes"])
+        except (TypeError, ValueError):
+            raise BackendError("minutes must be a whole number", 400)
+        if m not in MINUTES:
+            raise BackendError("Choose one of: " + ", ".join(str(x) for x in MINUTES) + " minutes", 400)
+        cur["minutes"] = m
+    if "enabled" in new:
+        on = bool(new["enabled"])
+        if on and not (config()["base_url"] and config()["token"]):
+            raise BackendError("Set up the backend address and token first", 400)
+        if on and not cur["enabled"]:
+            cur["last_attempt"] = db.now_ms()  # the first automatic run is one interval from now
+        cur["enabled"] = on
+    auth._put_private("_sync_schedule", cur)
+    auth.log(actor, "sync.schedule", f"automatic sync {'every ' + str(cur['minutes']) + ' minutes' if cur['enabled'] else 'off'}", via="session")
+    return schedule()
+
+
+def _scheduler():
+    while True:
+        time.sleep(TICK)
+        try:
+            s = auth._get_private("_sync_schedule", SCHEDULE_DEFAULT)
+            if not s["enabled"] or STATE["running"]:
+                continue
+            if db.now_ms() < (s["last_attempt"] or 0) + s["minutes"] * 60000:
+                continue
+            cfg = config()
+            s["last_attempt"] = db.now_ms()
+            auth._put_private("_sync_schedule", s)
+            if not (cfg["base_url"] and cfg["token"]) or not _private()["cursor_ms"]:
+                continue  # needs a first sync done by a person: how far back to go is their decision
+            try:
+                _begin()
+            except BackendError:
+                continue
+            try:
+                _execute(None, "schedule", quiet=True)
+            except Exception:  # noqa  (recorded in STATE and the audit log)
+                pass
+        except Exception:  # noqa  keep the scheduler alive
+            pass
+
+
+def start_scheduler():
+    threading.Thread(target=_scheduler, daemon=True, name="sync-schedule").start()

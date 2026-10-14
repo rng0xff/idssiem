@@ -462,6 +462,16 @@ def api_sync_status(h, p):
     return cycurguard.status()
 
 
+@route("GET", "/api/sync/schedule")
+def api_sync_schedule(h, p):
+    return cycurguard.schedule()
+
+
+@route("PUT", "/api/sync/schedule", level=3)
+def api_sync_schedule_put(h, p):
+    return _sync_call(cycurguard.put_schedule, h.json_body(), h.user["username"])
+
+
 @route("POST", "/api/sync/preview")
 def api_sync_preview(h, p):
     return _sync_call(cycurguard.preview, _days(h.json_body()))
@@ -884,6 +894,7 @@ class Handler(BaseHTTPRequestHandler):
 def serve(host="127.0.0.1", port=8765):
     db.init()
     db.recompute_ts_ok()
+    cycurguard.start_scheduler()
     srv = ThreadingHTTPServer((host, port), Handler)
     srv.daemon_threads = True
     print(f"IDS SIEM running at http://{host}:{port}  (Ctrl+C to stop)")

@@ -39,7 +39,10 @@ function drawSync(s) {
   }
   const last = s.last_run ? `Last sync ${esc(fmtMin(s.last_run))} UTC${s.last_result ? `: ${fmtN(s.last_result.rows_new)} new, ${fmtN(s.last_result.rows_duplicate)} already present` : ''}.` : 'Never synced yet.';
   const pos = s.cursor_ms ? ` Data received by the backend up to ${esc(fmtMin(s.cursor_ms))} UTC is in.` : '';
-  let body = `<p style="margin-top:0">Pulling from <b>${esc(s.base_url)}</b>. ${last}${pos}</p>`;
+  const sc = s.schedule || {};
+  const every = m => m >= 60 ? (m / 60) + (m === 60 ? ' hour' : ' hours') : m + ' minutes';
+  const auto = sc.enabled ? ` Automatic sync every ${every(sc.minutes)}${sc.next_run ? `, next about ${esc(fmtMin(sc.next_run))} UTC` : ''}.` : ' Automatic sync is off.';
+  let body = `<p style="margin-top:0">Pulling from <b>${esc(s.base_url)}</b>. ${last}${pos}${auto}${ME.role === 'admin' ? ' <a href="#/users">Change</a>' : ''}</p>`;
   if (st.running) {
     const pct = st.total ? Math.min(100, Math.round(st.fetched / st.total * 100)) : 0;
     body += `<span class="progress big" role="img" aria-label="${pct} percent"><span style="width:${pct}%"></span></span>

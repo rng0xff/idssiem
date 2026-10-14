@@ -127,7 +127,7 @@ ROUTES.account = async function () {
 /* ---------------------------------------------------------------- administration */
 ROUTES.users = async function () {
   if (ME.role !== 'admin') { view.innerHTML = '<div class="panel"><h2>Administrators only</h2><p>Your role does not include user management.</p></div>'; return; }
-  const [ul, pol, be, alltok] = await Promise.all([api('/api/users'), api('/api/auth/policy'), api('/api/backend'), api('/api/tokens?all=1')]);
+  const [ul, pol, be, alltok, sch] = await Promise.all([api('/api/users'), api('/api/auth/policy'), api('/api/backend'), api('/api/tokens?all=1'), api('/api/sync/schedule')]);
   const users = ul.users;
   view.innerHTML = `<div class="page-head"><h1>Users</h1><span class="spacer"></span><button class="btn primary" id="u-new">New user</button></div>
   <div class="panel"><h2>Accounts</h2><div class="tablewrap"><table><thead><tr><th>Username</th><th>Name</th><th>Role</th><th>Status</th><th>Two-step</th><th class="num">Active tokens</th><th>Last sign-in</th></tr></thead><tbody>
@@ -150,6 +150,11 @@ ROUTES.users = async function () {
     <div class="params"><label>Backend URL<input type="text" id="be-url" value="${esc(be.base_url)}" placeholder="https://ineos.cycurguard.etas.com" style="width:340px"></label>
     <label>API token<input type="password" id="be-tok" autocomplete="off" placeholder="${be.token_set ? `saved, ends in ${esc(be.token_preview || '····')}` : 'paste the token'}" style="width:260px"></label></div>
     ${be.token_set ? '<p style="margin:12px 0 0"><label><input type="checkbox" id="be-clear"> Remove the saved token</label></p>' : ''}
+    <h3 style="margin:16px 0 6px;font-size:14px">Automatic sync</h3>
+    <div class="params"><label><span><input type="checkbox" id="sc-on" ${sch.enabled ? 'checked' : ''}> Pull new events automatically, every</span>
+      <select id="sc-min" style="width:150px">${sch.choices.map(m => `<option value="${m}" ${m === sch.minutes ? 'selected' : ''}>${m >= 60 ? (m / 60) + (m === 60 ? ' hour' : ' hours') : m + ' minutes'}</option>`).join('')}</select></label>
+      <label>&nbsp;<button class="btn" id="sc-save">Save schedule</button></label></div>
+    <p class="muted" style="margin:6px 0 0">${sch.needs_first_sync ? 'Do the first sync by hand on the Data page (you choose how far back to go). Automatic runs start after that. ' : ''}${sch.enabled && sch.next_run ? `Next run about ${esc(fmtMin(sch.next_run))} UTC. ` : ''}Runs only while this tool is running. Each run continues where the last one ended; runs that find nothing new are not written to the audit log.</p>
     <p style="margin:12px 0 0"><button class="btn" id="be-test">Test connection</button> <button class="btn primary" id="be-save">Save connection</button></p>
     <div id="be-result" role="status"></div>
     <p class="muted" style="margin-bottom:0">Test uses what is typed above without saving it. If the token field is empty, the saved token is used.</p></div>
@@ -171,6 +176,9 @@ ROUTES.users = async function () {
       out.innerHTML = `<div class="note ok" style="margin:12px 0 0"><b>Connected.</b> ${esc(r.base_url)} runs version ${esc(r.version)}. The token is accepted and the backend holds <b>${fmtN(r.total)}</b> events. (${fmtN(r.ms)} ms)</div>`;
     } catch (e) { out.innerHTML = `<div class="note err" role="alert" style="margin:12px 0 0"><b>Not connected.</b> ${esc(e.message)}</div>`; }
     btn.disabled = false;
+  });
+  $('#sc-save').addEventListener('click', async () => {
+    try { await api('/api/sync/schedule', { method: 'PUT', json: { enabled: $('#sc-on').checked, minutes: +$('#sc-min').value } }); toast($('#sc-on').checked ? 'Automatic sync is on' : 'Automatic sync is off'); render(); } catch (e) { toast(e.message, true); }
   });
   $('#be-save').addEventListener('click', async () => {
     try { await api('/api/backend', { method: 'PUT', json: { base_url: $('#be-url').value, token: $('#be-tok').value, clear_token: !!($('#be-clear') && $('#be-clear').checked) } }); toast('Connection saved'); render(); } catch (e) { toast(e.message, true); }
