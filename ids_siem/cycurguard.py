@@ -238,6 +238,19 @@ def _private():
     return auth._get_private("_sync", {"cursor_ms": None, "last_run": None, "last_result": None})
 
 
+def restart(actor):
+    """Forget how far the sync got, so the next sync starts from the beginning again. Stored events are kept: events the
+    backend sends again are recognised by id (and get any backend details they lacked)."""
+    with _lock:
+        if STATE["running"]:
+            raise BackendError("A sync is running. Stop it first.", 409)
+    p = _private()
+    p["cursor_ms"] = None
+    auth._put_private("_sync", p)
+    auth.log(actor, "sync.restart", "next sync starts from the beginning", via="sync")
+    return status()
+
+
 def status():
     cfg = config()
     p = _private()

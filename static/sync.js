@@ -53,7 +53,7 @@ function drawSync(s) {
   } else {
     if (st.error) body += `<p class="note err" role="alert"><b>The last sync stopped.</b> ${esc(st.error)}</p>`;
     body += `<div class="params">${s.cursor_ms ? '' : `<label>First sync covers<select id="sync-days" style="width:170px"><option value="30">the last 30 days</option><option value="90" selected>the last 90 days</option><option value="365">the last year</option><option value="">everything</option></select></label>`}
-      <label>&nbsp;<span><button class="btn" id="sync-check" ${canRun ? '' : 'disabled'}>Check connection</button> <button class="btn" id="sync-fields" ${canRun ? '' : 'disabled'}>Show all fields</button> <button class="btn primary" id="sync-go" ${canRun ? '' : 'disabled'}>Sync now</button></span></label></div>
+      <label>&nbsp;<span><button class="btn" id="sync-check" ${canRun ? '' : 'disabled'}>Check connection</button> <button class="btn" id="sync-fields" ${canRun ? '' : 'disabled'}>Show all fields</button> <button class="btn primary" id="sync-go" ${canRun ? '' : 'disabled'}>Sync now</button>${s.cursor_ms ? ` <button class="btn" id="sync-restart" ${canRun ? '' : 'disabled'}>Start over…</button>` : ''}</span></label></div>
       <div id="sync-out"></div>
       <p class="muted">${sc2.loaded ? `Event configuration loaded: ${fmtN(sc2.events)} events on ${fmtN(sc2.ecus)} ECUs. The event details show their configured meaning and name coded values.` : 'No event configuration loaded. With the CycurGUARD sev configuration (JSON), the event details also name coded values such as DTC numbers.'}${ME.role === 'admin' ? ` <label class="btn small" style="display:inline-block;margin-left:6px">${sc2.loaded ? 'Replace' : 'Load'} configuration<input type="file" id="sev-file" accept=".json,application/json" hidden></label>${sc2.loaded ? ' <button class="btn small" id="sev-clear">Remove</button>' : ''}` : ''}</p>
       <p class="muted" style="margin-bottom:0">Events already stored are recognised by the backend's own id, so syncing twice never doubles anything. Events you imported from a file earlier are matched to their backend copy once.</p>`;
@@ -78,6 +78,11 @@ function drawSync(s) {
   });
   const sx = $('#sev-clear');
   if (sx) sx.addEventListener('click', async () => { try { await api('/api/sync/sevconfig', { method: 'DELETE' }); toast('Event configuration removed'); refreshSync(); } catch (e) { toast(e.message, true); } });
+  const rs = $('#sync-restart');
+  if (rs) rs.addEventListener('click', async () => {
+    if (!confirm('Start over? The next sync reads everything from the backend again, from the beginning. Stored events and cases are kept; events already present are recognised and only get missing backend details added. This can take a while for a large backend.')) return;
+    try { await api('/api/sync/restart', { method: 'POST', json: {} }); toast('Next sync starts from the beginning'); refreshSync(); } catch (e) { toast(e.message, true); }
+  });
   const go = $('#sync-go'), chk = $('#sync-check'), stop = $('#sync-cancel');
   if (chk) chk.addEventListener('click', async () => {
     const out = $('#sync-out'); out.innerHTML = '<p class="muted">Asking the backend…</p>';

@@ -18,9 +18,12 @@ def main():
     ap.add_argument("--reset-mfa", metavar="USER", help="remove the authenticator app, passkeys and recovery codes of USER (recovery if the phone is lost), then exit")
     ap.add_argument("--sync", action="store_true", help="pull events from the CycurGUARD backend, then exit (URL and token from the Users page, or CYCURGUARD_URL and CYCURGUARD_TOKEN)")
     ap.add_argument("--days", type=int, default=None, help="with --sync: how far back the very first sync goes (default: everything)")
+    ap.add_argument("--restart", action="store_true", help="with --sync: start from the beginning again instead of continuing (stored events are kept)")
     a = ap.parse_args()
     db.init()
     if a.sync:
+        if a.restart:
+            cycurguard.restart("cli")
         def show(s):
             tot = f" of {s['total']:,}" if s.get("total") is not None else ""
             print(f"  page {s['pages']}: {s['fetched']:,}{tot} events seen, {s['new']:,} new, {s['duplicate']:,} already present", flush=True)

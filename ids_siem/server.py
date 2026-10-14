@@ -506,6 +506,11 @@ def api_sync_start(h, p):
     return cycurguard.status()
 
 
+@route("POST", "/api/sync/restart")
+def api_sync_restart(h, p):
+    return _sync_call(cycurguard.restart, h.user["username"])
+
+
 @route("POST", "/api/sync/cancel")
 def api_sync_cancel(h, p):
     cycurguard.cancel()
