@@ -1,8 +1,9 @@
 """Search, facets, timelines and aggregates over the event store."""
 import datetime
+import json
 import re
 
-from . import db
+from . import db, sevconfig
 from .catalog import SEVERITIES
 
 BASE = "FROM events e JOIN catalog c ON c.cat_id = e.cat_id"
@@ -168,6 +169,13 @@ def get_event(eid):
     ev = r[0]
     note = db.conn().execute("SELECT note FROM event_notes WHERE event_id=?", (eid,)).fetchone()
     ev["note"] = note["note"] if note else ""
+    x = db.conn().execute("SELECT extra FROM events WHERE id=?", (eid,)).fetchone()
+    try:
+        extra = json.loads(x["extra"]) if x and x["extra"] else {}
+    except ValueError:
+        extra = {}
+    ev["backend"] = extra
+    ev["configured"] = sevconfig.describe(ev["ecu_id"], ev["event_id"], extra)
     # neighbours on the same vehicle (±1 h around this event, otherwise the 10 most recent)
     if ev["ts_ok"]:
         ev["related"] = rows(

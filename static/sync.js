@@ -42,6 +42,7 @@ function drawSync(s) {
   const sc = s.schedule || {};
   const every = m => m >= 60 ? (m / 60) + (m === 60 ? ' hour' : ' hours') : m + ' minutes';
   const auto = sc.enabled ? ` Automatic sync every ${every(sc.minutes)}${sc.next_run ? `, next about ${esc(fmtMin(sc.next_run))} UTC` : ''}.` : ' Automatic sync is off.';
+  const sc2 = s.sevconfig || {};
   let body = `<p style="margin-top:0">Pulling from <b>${esc(s.base_url)}</b>. ${last}${pos}${auto}${ME.role === 'admin' ? ' <a href="#/users">Change</a>' : ''}</p>`;
   if (st.running) {
     const pct = st.total ? Math.min(100, Math.round(st.fetched / st.total * 100)) : 0;
@@ -54,6 +55,7 @@ function drawSync(s) {
     body += `<div class="params">${s.cursor_ms ? '' : `<label>First sync covers<select id="sync-days" style="width:170px"><option value="30">the last 30 days</option><option value="90" selected>the last 90 days</option><option value="365">the last year</option><option value="">everything</option></select></label>`}
       <label>&nbsp;<span><button class="btn" id="sync-check" ${canRun ? '' : 'disabled'}>Check connection</button> <button class="btn" id="sync-fields" ${canRun ? '' : 'disabled'}>Show all fields</button> <button class="btn primary" id="sync-go" ${canRun ? '' : 'disabled'}>Sync now</button></span></label></div>
       <div id="sync-out"></div>
+      <p class="muted">${sc2.loaded ? `Event configuration loaded: ${fmtN(sc2.events)} events on ${fmtN(sc2.ecus)} ECUs. The event details show their configured meaning and name coded values.` : 'No event configuration loaded. With the CycurGUARD sev configuration (JSON), the event details also name coded values such as DTC numbers.'}${ME.role === 'admin' ? ` <label class="btn small" style="display:inline-block;margin-left:6px">${sc2.loaded ? 'Replace' : 'Load'} configuration<input type="file" id="sev-file" accept=".json,application/json" hidden></label>${sc2.loaded ? ' <button class="btn small" id="sev-clear">Remove</button>' : ''}` : ''}</p>
       <p class="muted" style="margin-bottom:0">Events already stored are recognised by the backend's own id, so syncing twice never doubles anything. Events you imported from a file earlier are matched to their backend copy once.</p>`;
   }
   box.innerHTML = body;
@@ -69,6 +71,13 @@ function drawSync(s) {
     } catch (e) { out.innerHTML = `<p class="note err" role="alert" style="margin:12px 0">${esc(e.message)}</p>`; }
     flds.disabled = false;
   });
+  const sf = $('#sev-file');
+  if (sf) sf.addEventListener('change', async () => {
+    if (!sf.files[0]) return;
+    try { await api('/api/sync/sevconfig', { method: 'PUT', body: sf.files[0] }); toast('Event configuration loaded'); refreshSync(); } catch (e) { toast(e.message, true); }
+  });
+  const sx = $('#sev-clear');
+  if (sx) sx.addEventListener('click', async () => { try { await api('/api/sync/sevconfig', { method: 'DELETE' }); toast('Event configuration removed'); refreshSync(); } catch (e) { toast(e.message, true); } });
   const go = $('#sync-go'), chk = $('#sync-check'), stop = $('#sync-cancel');
   if (chk) chk.addEventListener('click', async () => {
     const out = $('#sync-out'); out.innerHTML = '<p class="muted">Asking the backend…</p>';

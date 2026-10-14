@@ -17,7 +17,7 @@ import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from . import auth, cases, catalog, cycurguard, db, ingest, mfa, query, rules
+from . import auth, cases, catalog, cycurguard, db, ingest, mfa, query, rules, sevconfig
 
 STATIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static")
 MAX_BODY = 1024 * 1024 * 1024
@@ -470,6 +470,24 @@ def api_sync_schedule(h, p):
 @route("PUT", "/api/sync/schedule", level=3)
 def api_sync_schedule_put(h, p):
     return _sync_call(cycurguard.put_schedule, h.json_body(), h.user["username"])
+
+
+@route("GET", "/api/sync/sevconfig")
+def api_sevconfig(h, p):
+    return sevconfig.status()
+
+
+@route("PUT", "/api/sync/sevconfig", level=3)
+def api_sevconfig_put(h, p):
+    try:
+        return sevconfig.load(h.raw_body(), h.user["username"])
+    except ValueError as e:
+        raise HttpError(400, str(e))
+
+
+@route("DELETE", "/api/sync/sevconfig", level=3)
+def api_sevconfig_del(h, p):
+    return sevconfig.clear(h.user["username"])
 
 
 @route("POST", "/api/sync/preview")

@@ -225,6 +225,24 @@ ROUTES.events = async function (_, P) {
   };
 };
 
+function backendHtml(e) {
+  const b = e.backend || {}, cf = e.configured;
+  const rows = [];
+  if (cf) {
+    rows.push(['Configured meaning', esc(cf.description)]);
+    if (cf.type_name) rows.push(['Configured name', `<span class="mono">${esc(cf.type_name)}</span>`]);
+  }
+  const ctx = cf ? cf.context : Object.entries(b.ctx || {}).map(([name, value]) => ({ name, value, meaning: null }));
+  for (const c of ctx) rows.push([`Value: ${esc(c.name)}`, `<span class="mono">${esc(c.value)}</span>${c.meaning ? ` <span class="muted">${esc(c.meaning)}</span>` : ''}`]);
+  if (b.count != null) rows.push(['Occurrences in report', esc(b.count)]);
+  if (b.raw) rows.push(['Raw bytes (base64)', `<span class="mono">${esc(b.raw)}</span>`]);
+  if (b.counter != null) rows.push(['Global counter', esc(b.counter)]);
+  if (b.batch) rows.push(['Report batch', `<span class="mono">${esc(b.batch)}</span>`]);
+  if (b.nvm_from != null) rows.push(['Report covers (UTC)', `${fmtTs(b.nvm_from, 1)} to ${b.nvm_to != null ? fmtTs(b.nvm_to, 1) : '?'}`]);
+  if (b.sent != null) rows.push(['Sent by vehicle (UTC)', fmtTs(b.sent, 1)]);
+  return rows.length ? `<h3>Backend details</h3><dl class="kv">${rows.map(r => `<dt>${r[0]}</dt><dd>${r[1]}</dd>`).join('')}</dl>` : '';
+}
+
 async function openEvent(id) {
   const e = await api('/api/events/' + id);
   const filterSimilar = hashFor('events', { cat: e.cat_id ?? `${e.event_type}:${e.event_id}` });
@@ -239,6 +257,7 @@ async function openEvent(id) {
       <dt>Name</dt><dd class="mono">${esc(e.name) || '<span class="muted">empty</span>'}</dd>
       <dt>Description</dt><dd>${esc(e.description) || '<span class="muted">empty</span>'}</dd>
     </dl>
+    ${backendHtml(e)}
     <p style="margin:14px 0"><a class="btn small" href="${hashFor('events', { vin: e.vin })}">All events of this vehicle</a> <a class="btn small" href="${filterSimilar}">Same event on all vehicles</a></p>
     <h3>Analyst note</h3>
     <textarea id="note" rows="3" placeholder="Add a note about this event">${esc(e.note)}</textarea>

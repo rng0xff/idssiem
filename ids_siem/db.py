@@ -174,6 +174,8 @@ def init():
     for col, ddl in (("via", "TEXT DEFAULT ''"), ("target", "TEXT DEFAULT ''"), ("hash", "TEXT")):
         if col not in have:  # database created by an earlier version
             c.execute(f"ALTER TABLE audit ADD COLUMN {col} {ddl}")
+    if "extra" not in {r["name"] for r in c.execute("PRAGMA table_info(events)")}:
+        c.execute("ALTER TABLE events ADD COLUMN extra TEXT")  # backend details (context data, counters), JSON
     c.commit()
 
 

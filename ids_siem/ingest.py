@@ -28,6 +28,11 @@ FIELDS = ["event_type", "ts", "vin", "ecu_name", "ecu_id", "event_id", "name", "
 REQUIRED = ["event_type", "vin"]
 
 
+def _extra(raw):
+    x = raw.get("extra")
+    return json.dumps(x, separators=(",", ":")) if x else None
+
+
 class ImportError_(Exception):
     pass
 
@@ -198,11 +203,17 @@ class Importer:
         if by_id:
             self.legacy = self.c.execute("SELECT EXISTS(SELECT 1 FROM events WHERE dedupe_key NOT LIKE 'id:%')").fetchone()[0] == 1
         self.sql = ("INSERT OR IGNORE INTO events(dedupe_key, import_id, event_type, ts, ts_ok, vin, vin_prefix, ecu_name, ecu_id, "
-                    "event_id, cat_id, name, description) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)")
+                    "event_id, cat_id, name, description, extra) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
 
     @staticmethod
     def _hash(r):
         return hashlib.sha1("\x1f".join(str(r[f]) if r[f] is not None else "" for f in FIELDS).encode()).hexdigest()
+
+    def _flush(self, batch):
+        self.c.executemany(self.sql, batch)
+        if self.by_id:  # events stored by an earlier sync get their backend details once
+            self.c.executemany("UPDATE events SET extra=? WHERE dedupe_key=? AND extra IS NULL",
+                               [(b[13], b[0]) for b in batch if b[13]])
 
     def add(self, rows):
         c, batch = self.c, []
@@ -235,12 +246,12 @@ class Importer:
                 self.seen_cats[cid] = r
             ts_ok = 1 if r["ts"] is not None and self.lo <= r["ts"] <= self.hi else 0
             batch.append((key, self.import_id, r["event_type"], r["ts"], ts_ok, r["vin"], r["vin"][:6], r["ecu_name"], r["ecu_id"],
-                          r["event_id"], cid, r["name"], r["description"]))
+                          r["event_id"], cid, r["name"], r["description"], _extra(raw)))
             if len(batch) >= 5000:
-                c.executemany(self.sql, batch)
+                self._flush(batch)
                 batch = []
         if batch:
-            c.executemany(self.sql, batch)
+            self._flush(batch)
 
     def _stats(self):
         c = self.c

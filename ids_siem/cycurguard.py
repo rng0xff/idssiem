@@ -14,12 +14,14 @@ import time
 import urllib.error
 import urllib.request
 
-from . import auth, db, ingest, rules
+from . import auth, db, ingest, rules, sevconfig
 
 PAGE = 5000                      # events per request (the backend's own cap is higher)
 OVERLAP_MS = 10 * 60 * 1000      # incremental syncs start this far before the last one ended
 SOURCE_FIELDS = ["id", "type", "report.event_type", "sev_metadata.timestamp", "cg_ingest_timestamp", "vin", "ecu_name", "ecu_id",
-                 "sev_metadata.event_id", "sev_metadata.name", "sev_metadata.description"]
+                 "sev_metadata.event_id", "sev_metadata.name", "sev_metadata.description",
+                 "report.context_data", "report.raw_bytes", "report.sub_type_id", "sev_metadata.count", "nvm.uuid",
+                 "nvm.global_counter", "nvm.timestamp_earliest", "nvm.timestamp_latest", "input.message_data.timestamp"]
 TIMEOUT = 180
 
 
@@ -135,7 +137,26 @@ def to_row(rec):
             "ts": rec.get("sev_metadata.timestamp"),
             "vin": rec.get("vin"), "ecu_name": rec.get("ecu_name"), "ecu_id": rec.get("ecu_id"),
             "event_id": rec.get("sev_metadata.event_id"), "name": rec.get("sev_metadata.name"),
-            "description": rec.get("sev_metadata.description")}
+            "description": rec.get("sev_metadata.description"), "extra": extras(rec)}
+
+
+EXTRA_MAP = {"count": "sev_metadata.count", "sub_type": "report.sub_type_id", "raw": "report.raw_bytes", "batch": "nvm.uuid",
+             "counter": "nvm.global_counter", "nvm_from": "nvm.timestamp_earliest", "nvm_to": "nvm.timestamp_latest",
+             "sent": "input.message_data.timestamp"}
+
+
+def extras(rec):
+    """Backend details beyond the basic columns: decoded context data and the report's counters, as a small dict."""
+    flat = _flatten(rec)
+    out = {}
+    for short, key in EXTRA_MAP.items():
+        v = flat.get(key)
+        if v is not None:
+            out[short] = v
+    ctx = {k[len("report.context_data."):]: v for k, v in flat.items() if k.startswith("report.context_data.") and v is not None}
+    if ctx:
+        out["ctx"] = ctx
+    return out
 
 
 # ------------------------------------------------------------------ the sync job
@@ -153,7 +174,7 @@ def status():
     cfg = config()
     p = _private()
     return {"configured": bool(cfg["base_url"] and cfg["token"]), "base_url": cfg["base_url"], "state": dict(STATE),
-            "cursor_ms": p["cursor_ms"], "last_run": p["last_run"], "last_result": p["last_result"], "schedule": schedule()}
+            "cursor_ms": p["cursor_ms"], "last_run": p["last_run"], "last_result": p["last_result"], "schedule": schedule(), "sevconfig": sevconfig.status()}
 
 
 def start_window(days):
@@ -178,7 +199,9 @@ def preview(days=None):
 
 
 USED_FIELDS = {"id", "report.event_type", "type", "sev_metadata.timestamp", "cg_ingest_timestamp", "vin", "ecu_name", "ecu_id",
-               "sev_metadata.event_id", "sev_metadata.name", "sev_metadata.description"}
+               "sev_metadata.event_id", "sev_metadata.name", "sev_metadata.description", "sev_metadata.count", "report.sub_type_id",
+               "report.raw_bytes", "nvm.uuid", "nvm.global_counter", "nvm.timestamp_earliest", "nvm.timestamp_latest",
+               "input.message_data.timestamp"}
 
 
 def _flatten(x, prefix="", out=None):
@@ -216,7 +239,7 @@ def fields_probe(n=200):
                 e["examples"].append(t[:160] + ("…" if len(t) > 160 else ""))
     out = [{"field": e["field"], "present": e["present"], "types": sorted(e["types"]), "examples": e["examples"],
             "distinct": len(e["distinct"]) if len(e["distinct"]) < 50 else "50+",
-            "used": e["field"] in USED_FIELDS or e["field"].split("[")[0] in USED_FIELDS}
+            "used": e["field"] in USED_FIELDS or e["field"].startswith("report.context_data") or e["field"].split("[")[0] in USED_FIELDS}
            for e in seen.values()]
     out.sort(key=lambda e: (e["used"], -e["present"], e["field"]))
     return {"records": len(recs), "fields": out}
