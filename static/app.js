@@ -30,6 +30,7 @@ async function render() {
 }
 async function renderOnce() {
   closeDrawer();
+  clearTimeout(window.__syncTimer);
   view.onclick = view.oninput = view.onchange = view.onkeydown = null;
   window.__reloadAlerts = null;
   const { name, arg, params } = parseHash();
@@ -421,6 +422,7 @@ ROUTES.catalog = async function () {
 ROUTES.data = async function () {
   const [imps, q, st] = await Promise.all([api('/api/imports'), api('/api/quality'), api('/api/settings')]);
   view.innerHTML = `<div class="page-head"><h1>Data</h1></div>
+  ${syncPanelShell()}
   <div class="panel"><h2>Import events</h2>
     <div class="dropzone" id="drop"><p style="margin:0 0 10px">Drop an export here (CSV, Excel .xlsx or JSON), or</p><input type="file" id="file" accept=".csv,.xlsx,.xlsm,.json,.txt" hidden><button class="btn primary" id="pick">Choose a file</button>
     <p class="muted" style="margin:10px 0 0">Importing the same rows again does not create duplicates, so overlapping exports are fine.</p></div><div id="impres"></div></div>
@@ -444,6 +446,7 @@ ROUTES.data = async function () {
   -d '[{"report.event_type":"can","sev_metadata.timestamp":1754754669000,"vin":"SC6GN3DAXSF023632","ecu_name":"ETGW","ecu_id":1,"sev_metadata.event_id":32775,"sev_metadata.name":"IdsMEventConfig_ETGW_ECY_IDPS_RPRT_FRQ_DELTA_TOO_HI","sev_metadata.description":"..."}]'</pre></div>
   <div class="panel"><h2>Delete all data</h2><p style="margin-top:0">Removes every event, alert, case and note. Catalog and settings stay.</p><input type="text" id="resetconf" placeholder='Type DELETE ALL EVENTS' size="24"> <button class="btn danger" id="reset">Delete everything</button></div>`;
 
+  mountSync();
   const doImport = async file => {
     const box = $('#impres'); box.innerHTML = `<p>Importing ${esc(file.name)} (${(file.size / 1048576).toFixed(1)} MB)…</p>`;
     try {

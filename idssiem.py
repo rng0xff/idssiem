@@ -6,7 +6,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ids_siem import auth, db, ingest, rules, server  # noqa: E402
+from ids_siem import auth, cycurguard, db, ingest, rules, server  # noqa: E402
 
 
 def main():
@@ -15,8 +15,22 @@ def main():
     ap.add_argument("--import", dest="files", nargs="*", default=[], metavar="FILE",
                     help="import CSV/XLSX/JSON file(s) before starting the server")
     ap.add_argument("--reset-password", metavar="USER", help="set a new password for USER (recovery if the administrator is locked out), then exit")
+    ap.add_argument("--sync", action="store_true", help="pull events from the CycurGUARD backend, then exit (URL and token from the Users page, or CYCURGUARD_URL and CYCURGUARD_TOKEN)")
+    ap.add_argument("--days", type=int, default=None, help="with --sync: how far back the very first sync goes (default: everything)")
     a = ap.parse_args()
     db.init()
+    if a.sync:
+        def show(s):
+            tot = f" of {s['total']:,}" if s.get("total") is not None else ""
+            print(f"  page {s['pages']}: {s['fetched']:,}{tot} events seen, {s['new']:,} new, {s['duplicate']:,} already present", flush=True)
+        try:
+            res = cycurguard.run(a.days, actor="cli", progress=show)
+        except cycurguard.BackendError as e:
+            sys.exit(f"sync failed: {e}")
+        print(f"done: {res['rows_new']:,} new, {res['rows_duplicate']:,} already present, "
+              f"{res['rows_matched_to_earlier_import']:,} matched to earlier file imports")
+        print("detections:", res["detections"])
+        return
     if a.reset_password:
         import getpass
         r = db.conn().execute("SELECT id FROM users WHERE username=?", (a.reset_password,)).fetchone()

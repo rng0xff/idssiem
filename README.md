@@ -21,7 +21,7 @@ Data is stored in `data/siem.db` (SQLite). Set `IDS_SIEM_DB` to use another path
 | Cases | Create a case from one or more alerts (alert drawer or bulk action). Checklist (default tasks editable on the Data page), owner, due date, activity log, link or unlink alerts, close with a resolution (open alerts can be resolved with it), reopen. The dashboard shows status, overdue, ownerless, age, opened vs closed per week, time to close, severity, owners and resolutions |
 | Detections | Tune the six rules; alerts keep their triage state when rules run again |
 | Event catalog | Severity and category per event type. Defaults are a starting point, adjust to your TARA |
-| Data | Import (CSV, XLSX, JSON), import history, data quality, settings |
+| Data | Sync from CycurGUARD, import (CSV, XLSX, JSON), import history, data quality, settings |
 | Account | Change your password, create and revoke your own API tokens |
 | Users (admin) | Accounts and roles, sign-in and token rules, backend connection, all tokens |
 | Audit log (admin) | Who did what and when: search, filter by person, action group or date, export CSV, verify integrity |
@@ -36,9 +36,23 @@ High-severity event, event burst (N events of one type on one vehicle in a windo
 - **Unusable timestamps.** Events with an empty timestamp, or one before 2022-01-01 or in the future (an unsynchronised ECU clock), still count everywhere but cannot sit on a timeline or match a date range. Change the cut-off on the Data page.
 - Times are shown and entered in UTC.
 
-## Connecting the REST API later
+## Sync from the CycurGUARD backend
 
-`ids_siem/ingest.py` turns any source into the same row dicts. A REST client only has to fetch rows with the export's column names and call `import_rows(rows, source="api")`. Today you can also push JSON to `POST /api/ingest` (example on the Data page).
+An administrator saves the backend address and an API token on the **Users** page (or set `CYCURGUARD_URL` and `CYCURGUARD_TOKEN`). Then **Data → Sync from CycurGUARD** pulls events over the backend's REST API. The command line does the same:
+
+```
+python idssiem.py --sync            # first run: everything; later runs: only what is new
+python idssiem.py --sync --days 90  # first run: only the last 90 days
+```
+
+- **Check connection** shows the backend version, how many events a sync would pull, and the first three, so you can check the mapping before starting.
+- It pages through the backend by ingest time, oldest first, in pages of 5,000 (the backend caps one search at about 10,000). Each page is committed, so stopping or a failure keeps what was downloaded and the next sync continues from there.
+- Events are stored under the backend's own event id, so syncing twice never doubles anything. Events you imported from a file earlier are matched to their backend copy once, not duplicated.
+- Detections run after every sync, and each sync is written to the audit log.
+- Use a CycurGUARD API token with view permission for reports. A short-lived login token stops working after a while and the sync then reports that the token was refused.
+- Timing: about 9 seconds for 100,000 events on a synthetic backend, so roughly a minute and a half per million plus network time. The pages of the app stay fast at 100,000 events; at a million, the vehicle ranking and the filters take several seconds.
+
+`POST /api/ingest` still accepts JSON from any other source.
 
 ## Sign-in, roles and API tokens
 

@@ -17,7 +17,7 @@ import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from . import auth, cases, catalog, db, ingest, query, rules
+from . import auth, cases, catalog, cycurguard, db, ingest, query, rules
 
 STATIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static")
 MAX_BODY = 1024 * 1024 * 1024
@@ -278,6 +278,49 @@ def api_token_create(h, p):
 @route("DELETE", r"/api/tokens/(\d+)", session_only=True, level=1)
 def api_token_revoke(h, p, tid):
     return auth.revoke_token(h.user, int(tid))
+
+
+# ------------------------------------------------------------------ backend sync
+def _sync_call(fn, *args):
+    try:
+        return fn(*args)
+    except cycurguard.BackendError as e:
+        raise HttpError(e.code, str(e))
+
+
+def _days(b):
+    d = b.get("days")
+    if d in (None, "", 0, "0", "all"):
+        return None
+    try:
+        d = int(d)
+    except (TypeError, ValueError):
+        raise HttpError(400, "days must be a whole number or empty for everything")
+    if not 1 <= d <= 3650:
+        raise HttpError(400, "days must be between 1 and 3650")
+    return d
+
+
+@route("GET", "/api/sync/status")
+def api_sync_status(h, p):
+    return cycurguard.status()
+
+
+@route("POST", "/api/sync/preview")
+def api_sync_preview(h, p):
+    return _sync_call(cycurguard.preview, _days(h.json_body()))
+
+
+@route("POST", "/api/sync/start")
+def api_sync_start(h, p):
+    _sync_call(cycurguard.start_background, _days(h.json_body()), h.user["username"])
+    return cycurguard.status()
+
+
+@route("POST", "/api/sync/cancel")
+def api_sync_cancel(h, p):
+    cycurguard.cancel()
+    return cycurguard.status()
 
 
 # ------------------------------------------------------------------ cases
