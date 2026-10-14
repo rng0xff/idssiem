@@ -52,12 +52,23 @@ function drawSync(s) {
   } else {
     if (st.error) body += `<p class="note err" role="alert"><b>The last sync stopped.</b> ${esc(st.error)}</p>`;
     body += `<div class="params">${s.cursor_ms ? '' : `<label>First sync covers<select id="sync-days" style="width:170px"><option value="30">the last 30 days</option><option value="90" selected>the last 90 days</option><option value="365">the last year</option><option value="">everything</option></select></label>`}
-      <label>&nbsp;<span><button class="btn" id="sync-check" ${canRun ? '' : 'disabled'}>Check connection</button> <button class="btn primary" id="sync-go" ${canRun ? '' : 'disabled'}>Sync now</button></span></label></div>
+      <label>&nbsp;<span><button class="btn" id="sync-check" ${canRun ? '' : 'disabled'}>Check connection</button> <button class="btn" id="sync-fields" ${canRun ? '' : 'disabled'}>Show all fields</button> <button class="btn primary" id="sync-go" ${canRun ? '' : 'disabled'}>Sync now</button></span></label></div>
       <div id="sync-out"></div>
       <p class="muted" style="margin-bottom:0">Events already stored are recognised by the backend's own id, so syncing twice never doubles anything. Events you imported from a file earlier are matched to their backend copy once.</p>`;
   }
   box.innerHTML = body;
   const days = () => { const d = $('#sync-days'); return d ? (d.value || null) : null; };
+  const flds = $('#sync-fields');
+  if (flds) flds.addEventListener('click', async () => {
+    const out = $('#sync-out'); out.innerHTML = '<p class="muted">Fetching complete records…</p>'; flds.disabled = true;
+    try {
+      const r = await api('/api/sync/fields', { method: 'POST', json: {} });
+      out.innerHTML = `<div class="note ok" style="margin:12px 0"><b>${fmtN(r.fields.length)} fields</b> in ${fmtN(r.records)} complete records. Fields the tool does not use yet are listed first.</div>
+        <div class="tablewrap"><table><thead><tr><th>Field</th><th>In records</th><th>Type</th><th>Distinct</th><th>Examples</th><th>Used</th></tr></thead><tbody>${r.fields.map(f => `<tr><td class="mono">${esc(f.field)}</td><td class="num">${fmtN(f.present)} / ${fmtN(r.records)}</td><td>${esc(f.types.join(', '))}</td><td class="num">${esc(f.distinct)}</td><td class="mono" style="max-width:380px;word-break:break-all">${f.examples.map(esc).join('<br>')}</td><td>${f.used ? '<span class="status resolved">yes</span>' : '<span class="muted">no</span>'}</td></tr>`).join('')}</tbody></table></div>
+        <p class="muted">Taken from the oldest records of the next sync window, so rare event types may be missing. Nothing is stored.</p>`;
+    } catch (e) { out.innerHTML = `<p class="note err" role="alert" style="margin:12px 0">${esc(e.message)}</p>`; }
+    flds.disabled = false;
+  });
   const go = $('#sync-go'), chk = $('#sync-check'), stop = $('#sync-cancel');
   if (chk) chk.addEventListener('click', async () => {
     const out = $('#sync-out'); out.innerHTML = '<p class="muted">Asking the backend…</p>';

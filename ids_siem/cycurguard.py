@@ -177,6 +177,51 @@ def preview(days=None):
     return {"version": v.get("version"), "mode": mode, "from_ms": from_ms, "total": total, "sample": sample}
 
 
+USED_FIELDS = {"id", "report.event_type", "type", "sev_metadata.timestamp", "cg_ingest_timestamp", "vin", "ecu_name", "ecu_id",
+               "sev_metadata.event_id", "sev_metadata.name", "sev_metadata.description"}
+
+
+def _flatten(x, prefix="", out=None):
+    out = {} if out is None else out
+    if isinstance(x, dict) and x:
+        for k, v in x.items():
+            _flatten(v, f"{prefix}.{k}" if prefix else str(k), out)
+    elif isinstance(x, list) and x and all(isinstance(i, (dict, list)) for i in x):
+        for n, v in enumerate(x[:3]):
+            _flatten(v, f"{prefix}[{n}]", out)
+    else:
+        out[prefix] = x
+    return out
+
+
+def fields_probe(n=200):
+    """Fetch a batch of complete records (no field filter) and list every field the backend returns."""
+    cfg = config()
+    _check(cfg)
+    from_ms, _mode = start_window(None)
+    res = _request(cfg, "POST", "/v1/search", _params(from_ms, None, n, 0, fields=False))
+    recs = res.get("results") if isinstance(res, dict) else None
+    if not isinstance(recs, list):
+        raise BackendError("Unexpected answer from /v1/search (no 'results' list)")
+    seen = {}
+    for r in recs:
+        for k, v in _flatten(r).items():
+            e = seen.setdefault(k, {"field": k, "present": 0, "types": set(), "examples": [], "distinct": set()})
+            e["present"] += 1
+            e["types"].add(type(v).__name__ if v is not None else "null")
+            t = v if isinstance(v, str) else json.dumps(v, default=str)
+            if len(e["distinct"]) < 50:
+                e["distinct"].add(t)
+            if t not in e["examples"] and len(e["examples"]) < 2:
+                e["examples"].append(t[:160] + ("…" if len(t) > 160 else ""))
+    out = [{"field": e["field"], "present": e["present"], "types": sorted(e["types"]), "examples": e["examples"],
+            "distinct": len(e["distinct"]) if len(e["distinct"]) < 50 else "50+",
+            "used": e["field"] in USED_FIELDS or e["field"].split("[")[0] in USED_FIELDS}
+           for e in seen.values()]
+    out.sort(key=lambda e: (e["used"], -e["present"], e["field"]))
+    return {"records": len(recs), "fields": out}
+
+
 def _begin():
     with _lock:
         if STATE["running"]:

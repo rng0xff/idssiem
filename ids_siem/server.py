@@ -477,6 +477,11 @@ def api_sync_preview(h, p):
     return _sync_call(cycurguard.preview, _days(h.json_body()))
 
 
+@route("POST", "/api/sync/fields")
+def api_sync_fields(h, p):
+    return _sync_call(cycurguard.fields_probe)
+
+
 @route("POST", "/api/sync/start")
 def api_sync_start(h, p):
     _sync_call(cycurguard.start_background, _days(h.json_body()), h.user["username"])
