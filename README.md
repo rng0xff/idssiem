@@ -23,7 +23,7 @@ Data is stored in `data/siem.db` (SQLite). Set `IDS_SIEM_DB` to use another path
 | Event catalog | Severity and category per event type. Defaults are a starting point, adjust to your TARA |
 | Data | Sync from CycurGUARD, import (CSV, XLSX, JSON), import history, data quality, settings |
 | Account | Change your password, create and revoke your own API tokens |
-| Users (admin) | Accounts and roles, sign-in and token rules, backend connection, all tokens |
+| Users (admin) | Accounts and roles, sign-in and token rules, backend connection, all tokens, wizard mode |
 | Audit log (admin) | Who did what and when: search, filter by person, action group or date, export CSV, verify integrity |
 
 ## Suppression rules
@@ -34,6 +34,15 @@ For patterns you have judged harmless (for example an event type that a bench to
 - Alerts someone already works on (in progress or in a case) are not suppressed.
 - Switching a rule off, deleting it or letting it expire returns its alerts to New.
 - Analysts and admins can create, switch off and delete rules. Every change is in the audit log (`suppression.*`).
+
+## Wizard mode (demo)
+
+An administrator can switch it on from the **Users** page. It plays an analyst for demonstrations: it creates cases from all open alerts (one catalog case for new event types, one per fleet-wide alert, one per event type seen on three or more vehicles, otherwise one per vehicle), assigns owners round-robin, works through each checklist one step at a time with notes built from the real event data, and closes most cases; about one in five stays open or waiting. Speeds are fast (2 s per step), normal (5 s) and slow (15 s); the panel shows the expected duration. A chip in the top bar shows while it runs, and the lists refresh by themselves.
+
+- Everything it creates is attributed to **Wizard (demo)**, marked "[Demo]" and written to the audit log (`wizard.start|stop|reset`, case actions by actor `wizard`). Events are never changed.
+- **Remove demo cases** deletes the cases it made and returns the alerts it handled to New. It is refused while the wizard runs.
+- Timestamps are real, nothing is back-dated. It carries on after a restart of the tool if it was running.
+- Do not use it on a database with real casework.
 
 ## Case report
 

@@ -144,7 +144,9 @@ ROUTES.users = async function () {
     <p class="muted" style="margin-bottom:0">Test uses what is typed above without saving it. If the token field is empty, the saved token is used.</p></div>
   <div class="panel"><h2>All API tokens</h2>${alltok.length ? `<div class="tablewrap"><table><thead><tr><th>Owner</th><th>Name</th><th>Token</th><th>Permission</th><th>Expires</th><th>Last used</th><th>State</th><th></th></tr></thead><tbody>
     ${alltok.map(t => `<tr><td>${esc(t.owner)}</td><td>${esc(t.name)}</td><td class="mono">ids_…${esc(t.preview)}</td><td>${esc(t.perm)}</td><td class="nowrap">${fmtExp(t.expires_at)}</td><td class="nowrap">${t.last_used ? fmtDay(t.last_used) : '<span class="muted">never</span>'}</td><td>${stateHtml(t.state)}</td><td>${t.state === 'active' ? `<button class="btn small danger" data-revoke="${t.id}">Revoke</button>` : ''}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">No tokens yet.</div>'}</div>
+  <div class="panel" id="wizpanel"></div>
   <p class="muted">Everything done in the application is recorded in the <a href="#/audit">audit log</a>.</p>`;
+  mountWizard();
 
   $('#u-new').addEventListener('click', () => userForm(null));
   $('#pl-save').addEventListener('click', async () => {
@@ -202,7 +204,7 @@ async function startUserNames() {
 }
 
 /* ---------------------------------------------------------------- audit log */
-const AUDIT_GROUPS = [['alert.', 'Alerts'], ['suppression.', 'Suppression rules'], ['case.', 'Cases'], ['data.', 'Data imports, exports and deletion'], ['user.', 'Users'], ['token.', 'API tokens'], ['login', 'Sign-ins'], ['access.', 'Denied requests']];
+const AUDIT_GROUPS = [['alert.', 'Alerts'], ['suppression.', 'Suppression rules'], ['wizard.', 'Wizard mode'], ['case.', 'Cases'], ['data.', 'Data imports, exports and deletion'], ['user.', 'Users'], ['token.', 'API tokens'], ['login', 'Sign-ins'], ['access.', 'Denied requests']];
 const auditBad = a => /^(access\.denied|login\.failed|data\.reset|data\.import\.delete|case\.delete|user\.delete)/.test(a);
 function auditTarget(t) {
   const m = /^(case|vehicle):(.+)$/.exec(t || '');

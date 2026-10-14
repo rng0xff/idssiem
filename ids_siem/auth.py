@@ -172,6 +172,8 @@ def _via():
     u = getattr(_cur, "user", None)
     if not u:
         return ""
+    if u["via"] == "wizard":
+        return "wizard"
     return f"token #{u['token_id']}" if u["via"] == "token" else "session"
 
 

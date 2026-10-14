@@ -285,6 +285,7 @@ body.locked #auth { display: flex; min-height: 100vh; align-items: center; justi
   main { padding: 16px 12px; overflow: visible; min-width: 0; }
   .tablewrap { overflow-x: auto; max-width: 100%; }
   .page-head { flex-wrap: wrap; }
+  #wizpanel select { max-width: 100%; width: 100%; display: block; margin-top: 4px; }
 }
 @media (max-width: 520px) {
   .top .btn { padding: 4px 8px; }
@@ -309,3 +310,5 @@ body.locked #auth { display: flex; min-height: 100vh; align-items: center; justi
   .filters > * { max-width: 100%; }
   .filters input[type=search], .filters select { flex: 1 1 140px; min-width: 0; }
 }
+
+.wizchip { background: var(--warn-soft); border: 1px solid var(--warn); color: var(--warn); border-radius: 999px; padding: 1px 10px; font-size: 12px; font-weight: 600; white-space: nowrap; }
