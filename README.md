@@ -4,8 +4,8 @@ Runs on your machine, nothing leaves it. The look follows the INEOS TARA Workben
 
 ```
 pip install -r requirements.txt        # only for .xlsx import
-python run.py                          # then open http://127.0.0.1:8765
-python run.py --import export.csv      # optional: import before starting
+python idssiem.py                          # then open http://127.0.0.1:8765
+python idssiem.py --import export.csv      # optional: import before starting
 ```
 
 Data is stored in `data/siem.db` (SQLite). Set `IDS_SIEM_DB` to use another path.
@@ -56,7 +56,7 @@ API tokens belong to a user and have their own permission (`view`, `modify`, `fu
 curl -H "Authorization: Bearer ids_..." http://127.0.0.1:8765/api/summary
 ```
 
-Notes and cases are attributed to the signed-in user. Locked out? Run `python run.py --reset-password USER` on the machine.
+Notes and cases are attributed to the signed-in user. Locked out? Run `python idssiem.py --reset-password USER` on the machine.
 
 ## Audit log
 
