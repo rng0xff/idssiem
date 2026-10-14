@@ -25,7 +25,7 @@ async function mountWizard() {
         const r = await api('/api/wizard/start', { method: 'POST', json: {} });
         toast(`${r.created} demo case(s) created and worked`);
       } else if (id === 'wz-keep') {
-        if (!confirm('Make the generated cases permanent? They become ordinary cases and Remove demo cases no longer touches them. This is recorded in the audit log.')) return;
+        if (!confirm('Make the generated cases permanent? They become ordinary cases and Remove demo cases no longer touches them.')) return;
         const r = await api('/api/wizard/keep', { method: 'POST', json: {} }); toast(`${r.kept} case(s) are now permanent`);
       } else if (id === 'wz-reset') {
         if (!confirm('Delete every case made by wizard mode and put the alerts it handled back to New?')) return;

@@ -244,7 +244,6 @@ def keep(user):
     """Forget which cases the run made: they are ordinary cases from now on and "Remove" no longer touches them."""
     n = len(_mine())
     _save_mine([])
-    auth.log(user["username"], "case.keep", f"{n} generated case(s) made permanent", target="")
     return {"kept": n}
 
 
