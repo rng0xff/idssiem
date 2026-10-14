@@ -220,7 +220,7 @@ async function startUserNames() {
 }
 
 /* ---------------------------------------------------------------- audit log */
-const AUDIT_GROUPS = [['alert.', 'Alerts'], ['suppression.', 'Suppression rules'], ['wizard.', 'Wizard mode'], ['case.', 'Cases'], ['data.', 'Data imports, exports and deletion'], ['user.', 'Users'], ['mfa.', 'Two-step sign-in'], ['token.', 'API tokens'], ['login', 'Sign-ins'], ['access.', 'Denied requests']];
+const AUDIT_GROUPS = [['alert.', 'Alerts'], ['suppression.', 'Suppression rules'], ['case.', 'Cases'], ['data.', 'Data imports, exports and deletion'], ['user.', 'Users'], ['mfa.', 'Two-step sign-in'], ['token.', 'API tokens'], ['login', 'Sign-ins'], ['access.', 'Denied requests']];
 const auditBad = a => /^(access\.denied|login\.failed|data\.reset|data\.import\.delete|case\.delete|user\.delete)/.test(a);
 function auditTarget(t) {
   const m = /^(case|vehicle):(.+)$/.exec(t || '');

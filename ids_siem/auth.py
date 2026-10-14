@@ -188,7 +188,7 @@ def log(actor, action, detail="", target="", via=None):
     with the change it describes), otherwise commits on its own."""
     cu = getattr(_cur, "user", None)
     if cu and cu.get("via") == "wizard":
-        return  # demonstration mode leaves no audit entries
+        return  # the demonstration run writes no audit entries
     c = db.conn()
     own = not c.in_transaction
     if own:

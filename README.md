@@ -23,7 +23,7 @@ Data is stored in `data/siem.db` (SQLite). Set `IDS_SIEM_DB` to use another path
 | Event catalog | Severity and category per event type. Defaults are a starting point, adjust to your TARA |
 | Data | Sync from CycurGUARD, import (CSV, XLSX, JSON), import history, data quality, settings |
 | Account | Change your password, two-step sign-in (authenticator app, passkeys, recovery codes), create and revoke your own API tokens |
-| Users (admin) | Accounts and roles, sign-in and token rules, backend connection, all tokens, wizard mode |
+| Users (admin) | Accounts and roles, sign-in and token rules, backend connection, all tokens |
 | Audit log (admin) | Who did what and when: search, filter by person, action group or date, export CSV, verify integrity |
 
 ## Suppression rules
@@ -34,15 +34,6 @@ For patterns you have judged harmless (for example an event type that a bench to
 - Alerts someone already works on (in progress or in a case) are not suppressed.
 - Switching a rule off, deleting it or letting it expire returns its alerts to New.
 - Analysts and admins can create, switch off and delete rules. Every change is in the audit log (`suppression.*`).
-
-## Wizard mode (demo)
-
-An administrator can press **Create demo cases now** on the **Users** page. It plays an analyst, at once: it creates cases from all open alerts (one catalog case for new event types, one per fleet-wide alert, one per event type seen on three or more vehicles, otherwise one per vehicle), assigns owners round-robin, works through each checklist with notes built from the real event data, and closes most cases; the rest end up waiting for input. It takes a fraction of a second.
-
-- It leaves **no entries in the audit log**. The cases carry the name **Wizard (demo)** and "[Demo]" in their own activity log. Events are never changed.
-- **Remove demo cases** deletes the cases it made and returns the alerts it handled to New, also without audit entries.
-- Timestamps are real, so every step happens at the moment of the click.
-- Because it bypasses the audit log, do not use it on a database with real casework.
 
 ## Case report
 

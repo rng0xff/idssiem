@@ -1,10 +1,9 @@
-"""Wizard mode: a demonstration helper that plays an analyst.
+"""Demonstration helper: creates and works cases for all open alerts at once.
 
 One button creates sensible cases for every alert that is not in a case yet, works through their checklists,
-writes notes from the real event data and closes most of them (some stay open or waiting, like in real life).
-It acts immediately, never touches events, and leaves no entries in the audit log. The cases carry the name
-"Wizard (demo)" in their own activity log, and "Remove demo cases" undoes its work. Timestamps are real, so
-everything happens at the moment of the click.
+writes notes from the real event data and closes most of them (some end up waiting). It never touches events and
+writes nothing to the audit log while it runs. The cases are remembered in a private list so "Remove demo cases"
+can undo the run; "Keep these cases" empties that list, after which the cases are ordinary and permanent.
 """
 import datetime
 import hashlib
@@ -13,16 +12,26 @@ import threading
 from . import auth, cases, db, vin as vinmod
 from .catalog import SEV_NUM
 
-NAME = "Wizard (demo)"
-USER = {"username": "wizard", "display_name": NAME, "via": "wizard", "token_id": None, "role": "admin", "level": 3}
 STEPS_PER_CASE = 8  # create, start, five tasks, close: used for the time estimate only
 
 _lock = threading.Lock()
-_state = {"tick": 0, "last_error": "", "last_action": ""}
+_state = {"tick": 0, "last_error": "", "last_action": "", "ids": []}
 
 
-def _save(cfg):
-    auth._put_private("_wizard", cfg)
+def _mine():
+    return list(auth._get_private("_wizard", {"cases": []}).get("cases", []))
+
+
+def _since():
+    return auth._get_private("_wizard", {}).get("since") or 0
+
+
+def _save_mine(ids, since=None):
+    auth._put_private("_wizard", {"cases": sorted(set(ids)), "since": (since if since is not None else _since()) if ids else 0})
+
+
+def _in(ids):
+    return ",".join("?" * len(ids)) or "NULL"
 
 
 # ------------------------------------------------------------------ planning
@@ -81,7 +90,7 @@ def plan_groups(c):
 
 
 def _owners(c):
-    return [r["username"] for r in c.execute("SELECT username FROM users WHERE active=1 AND role IN ('analyst','admin') AND username<>'wizard' ORDER BY id")] or [""]
+    return [r["username"] for r in c.execute("SELECT username FROM users WHERE active=1 AND role IN ('analyst','admin') ORDER BY id")] or [""]
 
 
 def _due(sev):
@@ -96,15 +105,16 @@ def _create_next(c):
         return False
     g = groups[0]
     owners = _owners(c)
-    n_cases = c.execute("SELECT COUNT(*) FROM cases WHERE created_by=?", (NAME,)).fetchone()[0]
+    n_cases = len(_state["ids"])
     ph = ",".join("?" * len(g["ids"]))
     ev = c.execute(f"SELECT COALESCE(SUM(event_count),0) FROM alerts WHERE id IN ({ph})", g["ids"]).fetchone()[0]
     vins = {r[0] for r in c.execute(f"SELECT DISTINCT vin FROM alerts WHERE id IN ({ph}) AND vin IS NOT NULL", g["ids"])}
-    summary = (f"[Demo] Opened by wizard mode from {len(g['ids'])} alert{'s' if len(g['ids']) > 1 else ''} "
+    summary = (f"Opened from {len(g['ids'])} alert{'s' if len(g['ids']) > 1 else ''} "
                f"covering {ev:,} events on {len(vins)} vehicle{'s' if len(vins) != 1 else ''}. "
                f"Grouped as: {dict(catalog='unclassified event types', fleet='fleet-wide alert', pattern='same event type on several vehicles', vehicle='one vehicle').get(g['kind'])}.")
     cs = cases.create_case({"alert_ids": g["ids"], "title": g["title"], "severity": g["sev"], "owner": owners[n_cases % len(owners)],
                             "due_date": _due(g["sev"]), "summary": summary})
+    _state["ids"].append(cs["id"])
     _state["last_action"] = f"opened case #{cs['id']}: {g['title']}"
     return True
 
@@ -183,7 +193,7 @@ def _advance(c, row):
         _state["last_action"] = f"case #{cid}: {t['title'].lower()}"
         return
     res, why = _resolution(cs, f)
-    findings = (f"[Demo] {why} Affected: {len(f['vins'])} vehicle{'s' if len(f['vins']) != 1 else ''}, {f['events']:,} events. "
+    findings = (f"{why} Affected: {len(f['vins'])} vehicle{'s' if len(f['vins']) != 1 else ''}, {f['events']:,} events. "
                 f"Same event type on {f['others']:,} other vehicles.")
     cases.close_case(cid, {"resolution": res, "findings": findings, "resolve_alerts": True})
     _state["last_action"] = f"closed case #{cid} ({cases.RESOLUTIONS[res].lower()})"
@@ -191,7 +201,7 @@ def _advance(c, row):
 
 def tick():
     c = db.conn()
-    active = c.execute("SELECT id FROM cases WHERE created_by=? AND status IN ('open','investigating') ORDER BY updated_at, id", (NAME,)).fetchall()
+    active = c.execute(f"SELECT id FROM cases WHERE id IN ({_in(_state['ids'])}) AND status IN ('open','investigating') ORDER BY updated_at, id", _state["ids"]).fetchall()
     _state["tick"] += 1
     create_first = _state["tick"] % 2 == 0 or len(active) < 3
     if create_first and _create_next(c):
@@ -203,49 +213,62 @@ def tick():
 
 
 # ------------------------------------------------------------------ run
-def run(by):
-    """Do the whole demonstration at once: cases for every open alert, worked and closed. Nothing is written to
-    the audit log (the cases' own activity log shows "Wizard (demo)")."""
-    if not _lock.acquire(blocking=False):
-        raise ValueError("Wizard mode is already running.")
+def _as(user):
+    """Do the work as the signed-in administrator, without audit entries."""
     prev = getattr(auth._cur, "user", None)
-    auth.set_current(dict(USER))  # the audit log skips everything done as this user
+    auth.set_current({**user, "via": "wizard"})
+    return prev
+
+
+def run(user):
+    """Create, work and close cases for every open alert at once."""
+    if not _lock.acquire(blocking=False):
+        raise ValueError("It is already running.")
+    prev = _as(user)
     try:
-        _state["tick"] = 0
+        _state.update(tick=0, ids=[])
+        started = db.now_ms()
         c = db.conn()
-        before = c.execute("SELECT COUNT(*) FROM cases WHERE created_by=?", (NAME,)).fetchone()[0]
         for _ in range(20000):  # safety cap
-            if not plan_groups(c) and not c.execute("SELECT 1 FROM cases WHERE created_by=? AND status IN ('open','investigating')", (NAME,)).fetchone():
+            if not plan_groups(c) and not c.execute(f"SELECT 1 FROM cases WHERE id IN ({_in(_state['ids'])}) AND status IN ('open','investigating')", _state["ids"]).fetchone():
                 break
             tick()
-        _save({"last_run": db.now_ms()})
-        return {**status(), "created": status()["cases_total"] - before}
+        _save_mine(_mine() + _state["ids"], _since() or started)
+        return {**status(), "created": len(_state["ids"])}
     finally:
         auth.set_current(prev)
         _lock.release()
 
 
-def reset(by):
-    """Delete the cases the wizard made and put the alerts it handled back to 'new'."""
+def keep(user):
+    """Forget which cases the run made: they are ordinary cases from now on and "Remove" no longer touches them."""
+    n = len(_mine())
+    _save_mine([])
+    auth.log(user["username"], "case.keep", f"{n} generated case(s) made permanent", target="")
+    return {"kept": n}
+
+
+def reset(user):
+    """Delete the cases of the run(s) not yet made permanent and put their alerts back to 'new'."""
     if not _lock.acquire(blocking=False):
-        raise ValueError("Wizard mode is running.")
-    prev = getattr(auth._cur, "user", None)
-    auth.set_current(dict(USER))
+        raise ValueError("It is running.")
+    prev = _as(user)
     try:
         c = db.conn()
-        ids = [r["id"] for r in c.execute("SELECT id FROM cases WHERE created_by=?", (NAME,))]
-        reset_alerts = 0
-        now = db.now_ms()
+        ids = [i for i in _mine() if c.execute("SELECT 1 FROM cases WHERE id=?", (i,)).fetchone()]
+        reset_alerts, now, since = 0, db.now_ms(), _since()
         for cid in ids:
             for a in c.execute("SELECT a.id, a.status FROM alerts a JOIN case_alerts ca ON ca.alert_id=a.id WHERE ca.case_id=?", (cid,)).fetchall():
-                if a["status"] != "new" and c.execute("SELECT 1 FROM alert_comments WHERE alert_id=? AND author='system' AND body LIKE ?",
-                                                      (a["id"], f"%{NAME}%")).fetchone():
+                # take the alert back to how it was: status new and without the history the run wrote
+                c.execute("DELETE FROM alert_comments WHERE alert_id=? AND author='system' AND created_at>=?", (a["id"], since))
+                if a["status"] != "new":
                     c.execute("UPDATE alerts SET status='new', updated_at=? WHERE id=?", (now, a["id"]))
-                    c.execute("INSERT INTO alert_comments(alert_id, author, body, created_at) VALUES(?,?,?,?)",
-                              (a["id"], "system", "Reset when the demo cases were removed.", now))
                     reset_alerts += 1
             cases.delete_case(cid)
+        # entries left by an earlier version of this feature
+        c.execute("DELETE FROM alert_comments WHERE author='system' AND (body LIKE '%Wizard (demo)%' OR body LIKE 'Reset when the demo cases were removed.%')")
         c.commit()
+        _save_mine([])
         return {"removed": len(ids), "alerts_reset": reset_alerts}
     finally:
         auth.set_current(prev)
@@ -254,7 +277,8 @@ def reset(by):
 
 def status():
     c = db.conn()
-    cnt = {r["status"]: r["n"] for r in c.execute("SELECT status, COUNT(*) n FROM cases WHERE created_by=? GROUP BY status", (NAME,))}
+    ids = [i for i in _mine() if c.execute("SELECT 1 FROM cases WHERE id=?", (i,)).fetchone()]
+    cnt = {r["status"]: r["n"] for r in c.execute(f"SELECT status, COUNT(*) n FROM cases WHERE id IN ({_in(ids)}) GROUP BY status", ids)}
     groups = plan_groups(c)
     return {"cases_total": sum(cnt.values()), "cases_closed": cnt.get("closed", 0), "cases_waiting": cnt.get("waiting", 0),
             "cases_active": cnt.get("open", 0) + cnt.get("investigating", 0),

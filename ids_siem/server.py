@@ -151,16 +151,22 @@ def api_wizard(h, p):
 def api_wizard_start(h, p):
     from . import wizard
     try:
-        return wizard.run(h.user["username"])
+        return wizard.run(h.user)
     except ValueError as e:
         raise HttpError(409, str(e))
+
+
+@route("POST", "/api/wizard/keep", level=3)
+def api_wizard_keep(h, p):
+    from . import wizard
+    return wizard.keep(h.user)
 
 
 @route("POST", "/api/wizard/reset", level=3)
 def api_wizard_reset(h, p):
     from . import wizard
     try:
-        return wizard.reset(h.user["username"])
+        return wizard.reset(h.user)
     except ValueError as e:
         raise HttpError(409, str(e))
 
