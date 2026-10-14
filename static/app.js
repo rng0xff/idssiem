@@ -40,7 +40,7 @@ async function refreshChrome() {
     const s = await api('/api/summary');
     const b = $('#alert-badge');
     b.hidden = !s.open_alerts_total; b.textContent = fmtN(s.open_alerts_total);
-    $('#foot').innerHTML = s.total ? `${fmtN(s.total)} events<br>${fmtN(s.vins)} vehicles<br>${s.first_ts ? `${fmtDay(s.first_ts)} to ${fmtDay(s.last_ts)}` : ''}<br>Times in UTC` : 'No data loaded';
+    $('#doc').innerHTML = s.total ? `<b>${fmtN(s.total)}</b> events from <b>${fmtN(s.vins)}</b> vehicles${s.first_ts ? `, ${fmtDay(s.first_ts)} to ${fmtDay(s.last_ts)}` : ''}, times in UTC` : 'No data loaded';
   } catch (_) { /* ignore */ }
 }
 
@@ -79,7 +79,7 @@ ROUTES.overview = async function () {
     return;
   }
   const oa = sum.open_alerts;
-  view.innerHTML = `<div class="page-head"><h1>Overview</h1><span class="sub">${fmtN(sum.total)} events from ${fmtN(sum.vins)} vehicles, ${fmtDay(sum.first_ts)} to ${fmtDay(sum.last_ts)}</span></div>
+  view.innerHTML = `<div class="page-head"><h1>Overview</h1></div>
   <div class="figures">
     <a class="fig" href="#/events"><div class="n">${fmtN(sum.total)}</div><div class="l">Events</div><div class="s">${fmtN(sum.types)} event types, ${fmtN(sum.ecus)} ECUs</div></a>
     <a class="fig" href="#/vehicles"><div class="n">${fmtN(sum.vins)}</div><div class="l">Vehicles</div></a>
@@ -403,7 +403,7 @@ ROUTES.data = async function () {
   const [imps, q, st] = await Promise.all([api('/api/imports'), api('/api/quality'), api('/api/settings')]);
   view.innerHTML = `<div class="page-head"><h1>Data</h1></div>
   <div class="panel"><h2>Import events</h2>
-    <div class="drop" id="drop"><p style="margin:0 0 10px">Drop an export here (CSV, Excel .xlsx or JSON), or</p><input type="file" id="file" accept=".csv,.xlsx,.xlsm,.json,.txt" hidden><button class="btn primary" id="pick">Choose a file</button>
+    <div class="dropzone" id="drop"><p style="margin:0 0 10px">Drop an export here (CSV, Excel .xlsx or JSON), or</p><input type="file" id="file" accept=".csv,.xlsx,.xlsm,.json,.txt" hidden><button class="btn primary" id="pick">Choose a file</button>
     <p class="muted" style="margin:10px 0 0">Importing the same rows again does not create duplicates, so overlapping exports are fine.</p></div><div id="impres"></div></div>
   <div class="panel"><h2>Data quality</h2>
     ${q.total ? `<div class="figures"><div class="fig"><div class="n">${fmtN(q.no_timestamp)}</div><div class="l">No timestamp</div></div>
@@ -430,7 +430,7 @@ ROUTES.data = async function () {
       const r = await api('/api/import?' + qs({ filename: file.name }), { method: 'POST', body: file });
       box.innerHTML = `<div class="note" style="margin-top:12px"><b>${fmtN(r.rows_new)} new events imported</b> from ${fmtN(r.rows_total)} rows. ${fmtN(r.rows_duplicate)} were already present${r.rows_invalid ? `, ${fmtN(r.rows_invalid)} rows had no VIN or report type and were skipped` : ''}. Detections: ${r.detections.created} new alerts, ${r.detections.updated} updated, ${r.detections.reopened} re-opened. <a href="#/overview">Open overview</a></div>`;
       refreshChrome();
-    } catch (e) { box.innerHTML = `<div class="note" style="margin-top:12px;border-color:var(--sev-high)"><b>Import failed.</b> ${esc(e.message)}</div>`; }
+    } catch (e) { box.innerHTML = `<div class="note err" style="margin-top:12px"><b>Import failed.</b> ${esc(e.message)}</div>`; }
   };
   $('#pick').addEventListener('click', () => $('#file').click());
   $('#file').addEventListener('change', e => e.target.files[0] && doImport(e.target.files[0]));

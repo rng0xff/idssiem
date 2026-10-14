@@ -4,23 +4,32 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Fleet IDS</title>
+<link rel="icon" href="/assets/ineos-logo.png">
 <link rel="stylesheet" href="/style.css">
+<script src="/theme.js"></script>
 </head>
 <body>
-<aside id="rail">
-  <div class="brand">Fleet IDS<small>Vehicle event analysis</small></div>
-  <nav id="nav">
+<div class="app">
+  <header class="top">
+    <div class="brand"><img class="logo" alt="INEOS" src="/assets/ineos-logo.png">Fleet IDS</div>
+    <div class="doc" id="doc"></div>
+    <a class="btn" href="#/data" title="Import events from an export file">Import data</a>
+    <button class="btn ghost" id="btn-theme" title="Toggle dark mode">Theme</button>
+  </header>
+  <nav class="nav" id="nav">
+    <h6>Analyse</h6>
     <a href="#/overview" data-r="overview">Overview</a>
     <a href="#/events" data-r="events">Events</a>
     <a href="#/vehicles" data-r="vehicles">Vehicles</a>
-    <a href="#/alerts" data-r="alerts">Alerts <span class="badge" id="alert-badge" hidden></span></a>
+    <h6>Respond</h6>
+    <a href="#/alerts" data-r="alerts">Alerts <span class="cnt" id="alert-badge" hidden></span></a>
+    <h6>Configure</h6>
     <a href="#/detections" data-r="detections">Detections</a>
     <a href="#/catalog" data-r="catalog">Event catalog</a>
     <a href="#/data" data-r="data">Data</a>
   </nav>
-  <div class="foot" id="foot"></div>
-</aside>
-<main id="view"></main>
+  <main id="main"><div class="wrap" id="view"></div></main>
+</div>
 <div id="scrim"></div>
 <aside id="drawer" aria-hidden="true"></aside>
 <div id="toast" role="status"></div>

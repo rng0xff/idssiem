@@ -1,6 +1,6 @@
 # Fleet IDS: a local SIEM for vehicle IDS events
 
-Runs on your machine, nothing leaves it. Python 3.9+ and the standard library; `openpyxl` is only needed for Excel imports.
+Runs on your machine, nothing leaves it. The look follows the INEOS TARA Workbench (light and dark theme, INEOS logo). Python 3.9+ and the standard library; `openpyxl` is only needed for Excel imports.
 
 ```
 pip install -r requirements.txt        # only for .xlsx import
