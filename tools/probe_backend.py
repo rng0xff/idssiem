@@ -47,6 +47,11 @@ def flat(x, p="", out=None):
     return out
 
 
+def norm(k):
+    import re
+    return re.sub(r"\.\d+(?=\.|$)", ".#", k)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--keep-vin", action="store_true")
@@ -74,16 +79,22 @@ def main():
             res[f"search_{order}"] = f"HTTP {st}: {r}"
     res["records_read"] = len(recs)
 
-    # 2. does source_fields with the parent name return the context sub-fields?
+    # 2. what does source_fields return when it names a parent object, a list or a leaf? (CAN and sev events both)
     probe = {}
-    for name, fields in (("parent", [CTX, "sev_metadata.event_id"]), ("child", [CTX + ".can_id", CTX + ".dtc_id", CTX + ".cpu_load"])):
-        st, r = call(base, token, "POST", "/v1/search", {"max_results": 40, "offset": 0, "source_fields": fields,
-                                                       "sort_params": [{"field": "cg_ingest_timestamp", "order": "desc"}]})
-        if st == 200 and isinstance(r, dict):
-            keys = collections.Counter(k for x in r.get("results", []) for k in flat(x))
-            probe[name] = dict(keys)
-        else:
-            probe[name] = f"HTTP {st}: {r}"
+    tests = {"report_parents": ["report.rule_details", "report.message_info", "report.extra_data", "report.signal_info", CTX],
+             "list_parent": ["report.message_info.details.ecus_tx"],
+             "leaves": ["report.severity", "report.type_name", "report.rule_details.rule_name", "report.message_info.details.name",
+                        CTX + ".can_id", CTX + ".cpu_load", CTX + ".dtc_id"],
+             "whole_report": ["report"]}
+    for name, fields in tests.items():
+        for order in ("desc", "asc"):
+            st, r = call(base, token, "POST", "/v1/search", {"max_results": 100, "offset": 0, "source_fields": fields,
+                                                           "sort_params": [{"field": "cg_ingest_timestamp", "order": order}]})
+            if st == 200 and isinstance(r, dict):
+                keys = collections.Counter(norm(k) for x in r.get("results", []) for k in flat(x))
+                probe[f"{name}_{order}"] = {"records": len(r.get("results", [])), "keys": dict(sorted(keys.items()))}
+            else:
+                probe[f"{name}_{order}"] = f"HTTP {st}: {r}"
     res["source_fields_test"] = probe
 
     # 3. summary over the records
@@ -124,7 +135,8 @@ def main():
         json.dump(res, fh, indent=1, default=str)
     print(f"version: {res['version']}\ntotal events: {res['total_events']}\nrecords read: {len(recs)}, without event timestamp: {null_ts}")
     print("context fields:", ", ".join(res["context_fields"]) or "none")
-    print("source_fields parent returned:", [k for k in (probe.get("parent") or {}) if isinstance(probe.get("parent"), dict)][:8])
+    for k, v in probe.items():
+        print(f"source_fields test {k}:", (str(v) if isinstance(v, str) else f"{len(v['keys'])} distinct keys")[:120])
     print(f"\nWrote {a.out} ({os.path.getsize(a.out)} bytes). Send that file back.")
 
 
