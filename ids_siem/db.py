@@ -103,6 +103,16 @@ CREATE TABLE IF NOT EXISTS sessions(
   created_at INTEGER, last_seen INTEGER, expires_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS ix_sess_user ON sessions(user_id);
+CREATE TABLE IF NOT EXISTS mfa_creds(
+  id INTEGER PRIMARY KEY, user_id INTEGER, kind TEXT, name TEXT, cred_id TEXT,
+  data TEXT, created_at INTEGER, last_used INTEGER, confirmed INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS ix_mfa_user ON mfa_creds(user_id);
+CREATE INDEX IF NOT EXISTS ix_mfa_cred ON mfa_creds(cred_id);
+CREATE TABLE IF NOT EXISTS mfa_recovery(
+  id INTEGER PRIMARY KEY, user_id INTEGER, code_hash TEXT, used_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS ix_mfar_user ON mfa_recovery(user_id);
 CREATE TABLE IF NOT EXISTS api_tokens(
   id INTEGER PRIMARY KEY, user_id INTEGER, name TEXT,
   token_hash TEXT UNIQUE, preview TEXT,

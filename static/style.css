@@ -312,3 +312,11 @@ body.locked #auth { display: flex; min-height: 100vh; align-items: center; justi
 }
 
 .wizchip { background: var(--warn-soft); border: 1px solid var(--warn); color: var(--warn); border-radius: 999px; padding: 1px 10px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+
+/* two-step sign-in */
+.qr { width: 180px; height: 180px; display: block; border: 1px solid var(--line); border-radius: 4px; background: #fff; }
+.mfsetup { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; margin-top: 12px; }
+.mfsetup > div:last-child { flex: 1 1 260px; min-width: 0; }
+.reccodes { margin: 6px 0 8px; columns: 2; column-gap: 28px; font-size: 14px; letter-spacing: .03em; }
+#mfapanel code { word-break: break-all; }
+#mfapanel h3 { font-size: 14px; }

@@ -17,7 +17,7 @@ import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from . import auth, cases, catalog, cycurguard, db, ingest, query, rules
+from . import auth, cases, catalog, cycurguard, db, ingest, mfa, query, rules
 
 STATIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static")
 MAX_BODY = 1024 * 1024 * 1024
@@ -228,13 +228,89 @@ def api_auth_setup(h, p):
     return {"user": user}
 
 
-@route("POST", "/api/auth/login", public=True)
-def api_auth_login(h, p):
-    b = h.json_body()
-    raw, ttl = auth.login(b.get("username", ""), b.get("password", ""))
+def _signed_in(h, raw, ttl):
     h.set_cookie = (raw, ttl)
     u = auth.identify({"Cookie": f"{auth.COOKIE}={raw}"})
     return {"user": auth.me(u)}
+
+
+@route("POST", "/api/auth/login", public=True)
+def api_auth_login(h, p):
+    b = h.json_body()
+    try:
+        raw, ttl = auth.login(b.get("username", ""), b.get("password", ""))
+    except auth.MfaNeeded as m:
+        return m.info
+    return _signed_in(h, raw, ttl)
+
+
+@route("POST", "/api/auth/mfa", public=True)
+def api_auth_mfa(h, p):
+    b = h.json_body()
+    raw, ttl = mfa.complete_code(b.get("mfa_token"), b.get("code"))
+    return _signed_in(h, raw, ttl)
+
+
+@route("POST", "/api/auth/passkey/options", public=True)
+def api_passkey_login_options(h, p):
+    b = h.json_body()
+    return _auth_call(mfa.passkey_login_options, b.get("mfa_token"), h.headers.get("Host") or "")
+
+
+@route("POST", "/api/auth/passkey/verify", public=True)
+def api_passkey_login(h, p):
+    b = h.json_body()
+    try:
+        raw, ttl = mfa.passkey_login(b, h.headers.get("Host") or "")
+    except ValueError as e:
+        raise HttpError(400, str(e))
+    return _signed_in(h, raw, ttl)
+
+
+# ---- own two-step sign-in (session only; changes ask for the password again)
+@route("GET", "/api/mfa", session_only=True, level=1)
+def api_mfa(h, p):
+    return mfa.status(h.user, h.headers.get("Host") or "")
+
+
+@route("POST", "/api/mfa/totp/begin", session_only=True, level=1)
+def api_mfa_totp_begin(h, p):
+    return _auth_call(mfa.totp_begin, h.user, h.json_body().get("password"))
+
+
+@route("POST", "/api/mfa/totp/confirm", session_only=True, level=1)
+def api_mfa_totp_confirm(h, p):
+    return _auth_call(mfa.totp_confirm, h.user, h.json_body().get("code"))
+
+
+@route("POST", "/api/mfa/totp/remove", session_only=True, level=1)
+def api_mfa_totp_remove(h, p):
+    return _auth_call(mfa.totp_remove, h.user, h.json_body().get("password"))
+
+
+@route("POST", "/api/mfa/passkey/options", session_only=True, level=1)
+def api_mfa_passkey_options(h, p):
+    return _auth_call(mfa.passkey_register_options, h.user, h.json_body().get("password"), h.headers.get("Host") or "")
+
+
+@route("POST", "/api/mfa/passkey/register", session_only=True, level=1)
+def api_mfa_passkey_register(h, p):
+    return _auth_call(mfa.passkey_register, h.user, h.json_body(), h.headers.get("Host") or "")
+
+
+@route("POST", r"/api/mfa/passkey/(\d+)/remove", session_only=True, level=1)
+def api_mfa_passkey_remove(h, p, cid):
+    return _auth_call(mfa.passkey_remove, h.user, int(cid), h.json_body().get("password"))
+
+
+@route("POST", "/api/mfa/recovery", session_only=True, level=1)
+def api_mfa_recovery(h, p):
+    return _auth_call(mfa.regenerate_recovery, h.user, h.json_body().get("password"))
+
+
+@route("POST", r"/api/users/(\d+)/mfa/reset", level=3, session_only=True)
+def api_user_mfa_reset(h, p, uid):
+    return _auth_call(mfa.admin_reset, int(uid), h.user["username"])
 
 
 @route("POST", "/api/auth/logout", session_only=True, level=1)
@@ -257,7 +333,10 @@ def api_policy(h, p):
 
 @route("PUT", "/api/auth/policy", level=3)
 def api_policy_put(h, p):
-    r = _auth_call(auth.put_policy, h.json_body())
+    b = h.json_body()
+    if b.get("mfa_required") and not mfa.has_mfa(h.user["id"]):
+        raise HttpError(400, "Set up two-step sign-in for your own account first, otherwise you would lock yourself out.")
+    r = _auth_call(auth.put_policy, b)
     auth.log(h.user["username"], "policy.update", json.dumps(r))
     return r
 
@@ -746,6 +825,8 @@ class Handler(BaseHTTPRequestHandler):
                                 self.user = auth.identify(self.headers)
                                 if not self.user:
                                     raise HttpError(401, "login required")
+                                if self.user.get("mfa_setup") and not (u.path.startswith("/api/auth/") or u.path.startswith("/api/mfa")):
+                                    raise HttpError(403, "Your administrator requires two-step sign-in. Set it up on the Account page first.")
                                 if meta["session_only"] and self.user["via"] != "session":
                                     auth.log(self.user["username"], "access.denied", f"{method} {u.path}: needs a session, not a token", via=f"token #{self.user.get('token_id')}")
                                     raise HttpError(403, "this needs a signed-in session, not an API token")

@@ -34,6 +34,7 @@ async function renderOnce() {
   view.onclick = view.oninput = view.onchange = view.onkeydown = null;
   window.__reloadAlerts = null;
   const { name, arg, params } = parseHash();
+  if (ME.mfa_setup && name !== 'account') { location.hash = '#/account'; return; }
   $$('#nav a').forEach(a => a.classList.toggle('on', a.dataset.r === (name === 'vehicle' ? 'vehicles' : name)));
   const fn = ROUTES[name] || ROUTES.overview;
   view.innerHTML = '<div class="empty">Loading…</div>';

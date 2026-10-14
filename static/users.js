@@ -29,7 +29,13 @@ function showAuth(setup, msg) {
     <label class="field"><span>Password</span><input type="password" id="au-pw" autocomplete="${setup ? 'new-password' : 'current-password'}" required></label>
     ${setup ? '<label class="field"><span>Repeat password</span><input type="password" id="au-pw2" autocomplete="new-password" required></label>' : ''}
     <p class="note err" id="au-err" role="alert" hidden></p>
-    <button class="btn primary" type="submit" style="width:100%">${setup ? 'Create administrator' : 'Sign in'}</button></form>`;
+    <button class="btn primary" type="submit" style="width:100%">${setup ? 'Create administrator' : 'Sign in'}</button>
+    ${!setup && pkSupported() && onLocalhost() ? '<button class="btn" type="button" id="au-pk" style="width:100%;margin-top:8px">Sign in with a passkey</button>' : ''}</form>`;
+  const apk = $('#au-pk');
+  if (apk) apk.addEventListener('click', async () => {
+    const err = $('#au-err'); err.hidden = true;
+    try { await passkeySignIn(); } catch (ex) { err.textContent = pkErr(ex); err.hidden = false; }
+  });
   $('#authform').addEventListener('submit', async e => {
     e.preventDefault();
     const err = $('#au-err'); err.hidden = true;
@@ -38,6 +44,7 @@ function showAuth(setup, msg) {
       const body = { username: $('#au-user').value.trim(), password: $('#au-pw').value };
       if (setup) body.display_name = $('#au-name').value.trim();
       const r = await api(setup ? '/api/auth/setup' : '/api/auth/login', { method: 'POST', json: body });
+      if (r.mfa_required) { showMfaStep(r); return; }
       const st = await api('/api/auth/status');
       startSession(st.user || r.user);
     } catch (ex) { err.textContent = ex.message; err.hidden = false; $('#au-pw').value = ''; if ($('#au-pw2')) $('#au-pw2').value = ''; $('#au-pw').focus(); }
@@ -51,7 +58,8 @@ async function startSession(user) {
   $('#whoami').innerHTML = `<a href="#/account" title="Your account and API tokens"><b>${esc(user.display_name || user.username)}</b></a> <span class="rolechip ${esc(user.role)}">${esc(user.role)}</span>`;
   $$('[data-admin]').forEach(n => { n.hidden = user.role !== 'admin'; });
   try { $('#userlist').innerHTML = (await api('/api/users/names')).map(n => `<option value="${esc(n)}">`).join(''); } catch (_) { /* ignore */ }
-  if (!location.hash) location.hash = '#/overview';
+  if (user.mfa_setup) location.hash = '#/account';
+  else if (!location.hash) location.hash = '#/overview';
   render();
 }
 
@@ -78,6 +86,7 @@ ROUTES.account = async function () {
     <label>Repeat<input type="password" id="pw-new2" autocomplete="new-password"></label></div>
     <p class="muted">At least ${pol.min_password_length} characters. Your other sessions are signed out.</p>
     <p style="margin:0"><button class="btn" id="pw-save">Change password</button></p></div>
+  <div class="panel" id="mfapanel"></div>
   <div class="panel"><h2>API tokens</h2>
     <p style="margin-top:0">A token lets a script or another tool call this application's API as you, without your password. It can never do more than your role, and it cannot create tokens or change passwords.</p>
     ${pol.tokens_enabled ? `<div class="params">
@@ -89,6 +98,7 @@ ROUTES.account = async function () {
     <div id="tk-new"></div>` : '<p class="note">Your administrator has switched API tokens off.</p>'}
     <div id="tk-list">${tokListHtml(toks)}</div>
   </div>`;
+  mountMfa($('#mfapanel'));
   $('#pw-save').addEventListener('click', async () => {
     if ($('#pw-new').value !== $('#pw-new2').value) { toast('The two new passwords differ', true); return; }
     try { await api('/api/auth/password', { method: 'POST', json: { old_password: $('#pw-old').value, new_password: $('#pw-new').value } }); toast('Password changed'); render(); } catch (e) { toast(e.message, true); }
@@ -120,10 +130,10 @@ ROUTES.users = async function () {
   const [ul, pol, be, alltok] = await Promise.all([api('/api/users'), api('/api/auth/policy'), api('/api/backend'), api('/api/tokens?all=1')]);
   const users = ul.users;
   view.innerHTML = `<div class="page-head"><h1>Users</h1><span class="spacer"></span><button class="btn primary" id="u-new">New user</button></div>
-  <div class="panel"><h2>Accounts</h2><div class="tablewrap"><table><thead><tr><th>Username</th><th>Name</th><th>Role</th><th>Status</th><th class="num">Active tokens</th><th>Last sign-in</th></tr></thead><tbody>
+  <div class="panel"><h2>Accounts</h2><div class="tablewrap"><table><thead><tr><th>Username</th><th>Name</th><th>Role</th><th>Status</th><th>Two-step</th><th class="num">Active tokens</th><th>Last sign-in</th></tr></thead><tbody>
     ${users.map(u => `<tr class="row" data-uid="${u.id}"><td class="mono">${esc(u.username)}</td><td>${esc(u.display_name)}</td><td>${esc(u.role)}</td>
       <td>${u.locked ? '<span class="status new">locked</span>' : u.active ? '<span class="status resolved">active</span>' : '<span class="status false_positive">inactive</span>'}</td>
-      <td class="num">${u.tokens}</td><td class="nowrap">${u.last_login ? esc(fmtMin(u.last_login)) + ' UTC' : '<span class="muted">never</span>'}</td></tr>`).join('')}</tbody></table></div>
+      <td>${u.mfa ? '<span class="status resolved">on</span>' : '<span class="muted">off</span>'}</td><td class="num">${u.tokens}</td><td class="nowrap">${u.last_login ? esc(fmtMin(u.last_login)) + ' UTC' : '<span class="muted">never</span>'}</td></tr>`).join('')}</tbody></table></div>
     <p class="muted" style="margin-bottom:0">Select an account to change its role, reset the password, deactivate or delete it.</p></div>
   <div class="panel"><h2>Roles</h2><div class="tablewrap"><table><tbody>${ROLE_ORDER.map(r => `<tr><td><span class="rolechip ${r}">${r}</span></td><td>${esc(ul.roles[r])}</td></tr>`).join('')}</tbody></table></div></div>
   <div class="panel"><h2>Sign-in and token rules</h2><div class="params">
@@ -132,6 +142,7 @@ ROUTES.users = async function () {
     <label>Default token lifetime (days)<input type="number" id="pl-def" min="1" max="3650" value="${pol.token_default_days}"></label>
     <label>Longest token lifetime (days, 0 = no limit)<input type="number" id="pl-max" min="0" max="3650" value="${pol.token_max_days}"></label></div>
     <p style="margin:12px 0 0"><label><input type="checkbox" id="pl-on" ${pol.tokens_enabled ? 'checked' : ''}> Allow API tokens</label></p>
+    <p style="margin:8px 0 0"><label><input type="checkbox" id="pl-mfa" ${pol.mfa_required ? 'checked' : ''}> Require two-step sign-in (people without it must set it up at their next sign-in; API tokens are not affected)</label></p>
     <p class="muted">Switching tokens off stops every existing token at once. Changed lifetime limits apply to new tokens only.</p>
     <p style="margin:0"><button class="btn" id="pl-save">Save rules</button></p></div>
   <div class="panel"><h2>Backend connection</h2>
@@ -150,7 +161,7 @@ ROUTES.users = async function () {
 
   $('#u-new').addEventListener('click', () => userForm(null));
   $('#pl-save').addEventListener('click', async () => {
-    try { await api('/api/auth/policy', { method: 'PUT', json: { session_hours: $('#pl-sess').value, min_password_length: $('#pl-pw').value, token_default_days: $('#pl-def').value, token_max_days: $('#pl-max').value, tokens_enabled: $('#pl-on').checked } }); toast('Rules saved'); render(); } catch (e) { toast(e.message, true); }
+    try { await api('/api/auth/policy', { method: 'PUT', json: { session_hours: $('#pl-sess').value, min_password_length: $('#pl-pw').value, token_default_days: $('#pl-def').value, token_max_days: $('#pl-max').value, tokens_enabled: $('#pl-on').checked, mfa_required: $('#pl-mfa').checked } }); toast('Rules saved'); render(); } catch (e) { toast(e.message, true); }
   });
   $('#be-test').addEventListener('click', async () => {
     const out = $('#be-result'); out.innerHTML = '<p class="muted">Testing…</p>';
@@ -193,6 +204,11 @@ function userForm(u) {
       closeDrawer(); toast(u ? 'User saved' : 'User created'); await startUserNames(); render();
     } catch (e) { toast(e.message, true); }
   });
+  const mr = $('#uf-mfareset');
+  if (mr) mr.addEventListener('click', async () => {
+    if (!confirm(`Remove the authenticator app, passkeys and recovery codes of ${u.username}? They are signed out and can set up again.`)) return;
+    try { await api(`/api/users/${u.id}/mfa/reset`, { method: 'POST', json: {} }); closeDrawer(); toast('Two-step sign-in reset'); render(); } catch (e) { toast(e.message, true); }
+  });
   const d = $('#uf-del');
   if (d) d.addEventListener('click', async () => {
     if (!confirm(`Delete ${u.username}? Their tokens stop working. Notes and cases they wrote keep their name.`)) return;
@@ -204,7 +220,7 @@ async function startUserNames() {
 }
 
 /* ---------------------------------------------------------------- audit log */
-const AUDIT_GROUPS = [['alert.', 'Alerts'], ['suppression.', 'Suppression rules'], ['wizard.', 'Wizard mode'], ['case.', 'Cases'], ['data.', 'Data imports, exports and deletion'], ['user.', 'Users'], ['token.', 'API tokens'], ['login', 'Sign-ins'], ['access.', 'Denied requests']];
+const AUDIT_GROUPS = [['alert.', 'Alerts'], ['suppression.', 'Suppression rules'], ['wizard.', 'Wizard mode'], ['case.', 'Cases'], ['data.', 'Data imports, exports and deletion'], ['user.', 'Users'], ['mfa.', 'Two-step sign-in'], ['token.', 'API tokens'], ['login', 'Sign-ins'], ['access.', 'Denied requests']];
 const auditBad = a => /^(access\.denied|login\.failed|data\.reset|data\.import\.delete|case\.delete|user\.delete)/.test(a);
 function auditTarget(t) {
   const m = /^(case|vehicle):(.+)$/.exec(t || '');

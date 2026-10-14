@@ -29,7 +29,7 @@ MAX_SESSION_DAYS = 30
 LOCK_AFTER, LOCK_MINUTES = 5, 5
 
 POLICY_DEFAULT = {"session_hours": 8, "tokens_enabled": True, "token_default_days": 90,
-                  "token_max_days": 365, "min_password_length": 10}
+                  "token_max_days": 365, "min_password_length": 10, "mfa_required": False}
 
 _cur = threading.local()
 
@@ -121,6 +121,8 @@ def put_policy(new):
     num("min_password_length", 8, 128)
     if "tokens_enabled" in new:
         cur["tokens_enabled"] = bool(new["tokens_enabled"])
+    if "mfa_required" in new:
+        cur["mfa_required"] = bool(new["mfa_required"])
     if cur["token_max_days"] and cur["token_default_days"] > cur["token_max_days"]:
         cur["token_default_days"] = cur["token_max_days"]
     _put_private("_auth_policy", cur)
@@ -361,6 +363,8 @@ def delete_user(uid, actor_user):
         raise ValueError("This is the last active administrator")
     c.execute("DELETE FROM sessions WHERE user_id=?", (uid,))
     c.execute("DELETE FROM api_tokens WHERE user_id=?", (uid,))
+    c.execute("DELETE FROM mfa_creds WHERE user_id=?", (uid,))
+    c.execute("DELETE FROM mfa_recovery WHERE user_id=?", (uid,))
     c.execute("DELETE FROM users WHERE id=?", (uid,))
     c.commit()
     log(actor_user["username"], "user.delete", cur["username"], target=f"user:{uid}")
@@ -373,6 +377,7 @@ def list_users():
     for r in db.conn().execute("SELECT * FROM users ORDER BY username COLLATE NOCASE"):
         u = _public(r)
         u["locked"] = (r["locked_until"] or 0) > now
+        u["mfa"] = db.conn().execute("SELECT COUNT(*) FROM mfa_creds WHERE user_id=? AND confirmed=1", (r["id"],)).fetchone()[0]
         u["tokens"] = db.conn().execute("SELECT COUNT(*) FROM api_tokens WHERE user_id=? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>?)", (r["id"], now)).fetchone()[0]
         out.append(u)
     return out
@@ -409,28 +414,32 @@ def setup_first_admin(body):
     return u
 
 
-def login(username, password):
-    global _DUMMY
-    c = db.conn()
-    r = c.execute("SELECT * FROM users WHERE username=?", (str(username).strip(),)).fetchone()
+class MfaNeeded(Exception):
+    """Password was right but the account has a second factor: carries what the client must show next."""
+    def __init__(self, info):
+        self.info = info
+
+
+def check_locked(r):
     now = _now()
-    if r and (r["locked_until"] or 0) > now:
+    if (r["locked_until"] or 0) > now:
         mins = int(((r["locked_until"] - now) / 60000) + 1)
         raise AuthError(429, f"Too many failed attempts. Try again in {mins} minute{'s' if mins > 1 else ''}.")
-    if not r:  # spend the same time as a real check so the response does not reveal which usernames exist
-        _DUMMY = _DUMMY or hash_pw("dummy-password")
-        verify_pw(str(password), _DUMMY)
-    ok = bool(r) and r["active"] and verify_pw(str(password), r["pw_hash"])
-    if not ok:
-        if not r:
-            log(str(username).strip()[:60] or "(empty)", "login.failed", "unknown user", via="")
-        if r:
-            failed = (r["failed"] or 0) + 1
-            lock = now + LOCK_MINUTES * 60000 if failed >= LOCK_AFTER else 0
-            c.execute("UPDATE users SET failed=?, locked_until=? WHERE id=?", (0 if lock else failed, lock, r["id"]))
-            c.commit()
-            log(r["username"], "login.failed", "account locked for 5 minutes" if lock else ("account inactive" if not r["active"] else "wrong password"), via="")
-        raise AuthError(401, "Wrong username or password")
+
+
+def register_failure(r, reason):
+    """Count one failed attempt on an account; locks it after LOCK_AFTER. Passwords, codes and re-checks share the count."""
+    c = db.conn()
+    failed = (r["failed"] or 0) + 1
+    lock = _now() + LOCK_MINUTES * 60000 if failed >= LOCK_AFTER else 0
+    c.execute("UPDATE users SET failed=?, locked_until=? WHERE id=?", (0 if lock else failed, lock, r["id"]))
+    c.commit()
+    log(r["username"], "login.failed", "account locked for 5 minutes" if lock else reason, via="")
+
+
+def start_session(r, detail=""):
+    c = db.conn()
+    now = _now()
     c.execute("UPDATE users SET failed=0, locked_until=0, last_login=? WHERE id=?", (now, r["id"]))
     c.execute("DELETE FROM sessions WHERE expires_at<?", (now,))
     raw = secrets.token_urlsafe(32)
@@ -438,8 +447,31 @@ def login(username, password):
     c.execute("INSERT INTO sessions(token_hash, user_id, created_at, last_seen, expires_at) VALUES(?,?,?,?,?)",
               (_sha(raw), r["id"], now, now, now + hours * 3600000))
     c.commit()
-    log(r["username"], "login", "", via="")
+    log(r["username"], "login", detail, via="")
     return raw, hours * 3600
+
+
+def login(username, password):
+    """Check username and password. Returns (cookie value, seconds), or raises MfaNeeded when a second step is due."""
+    global _DUMMY
+    from . import mfa
+    c = db.conn()
+    r = c.execute("SELECT * FROM users WHERE username=?", (str(username).strip(),)).fetchone()
+    if r:
+        check_locked(r)
+    if not r:  # spend the same time as a real check so the response does not reveal which usernames exist
+        _DUMMY = _DUMMY or hash_pw("dummy-password")
+        verify_pw(str(password), _DUMMY)
+    ok = bool(r) and r["active"] and verify_pw(str(password), r["pw_hash"])
+    if not ok:
+        if not r:
+            log(str(username).strip()[:60] or "(empty)", "login.failed", "unknown user", via="")
+        else:
+            register_failure(r, "account inactive" if not r["active"] else "wrong password")
+        raise AuthError(401, "Wrong username or password")
+    if mfa.has_mfa(r["id"]):  # the failure count is cleared only when the whole sign-in succeeds
+        raise MfaNeeded(mfa.begin_login(r["id"]))
+    return start_session(r)
 
 
 def logout(raw):
@@ -485,11 +517,17 @@ def identify(headers):
     if now - s["last_seen"] > 60000:
         c.execute("UPDATE sessions SET last_seen=?, expires_at=? WHERE token_hash=?", (now, now + get_policy()["session_hours"] * 3600000, h))
         c.commit()
-    return _user_dict(u, ROLES[u["role"]], "session", session=h)
+    return _user_dict(u, ROLES[u["role"]], "session", session=h, mfa_setup=needs_mfa_setup(u["id"]))
+
+
+def needs_mfa_setup(uid):
+    from . import mfa
+    return bool(get_policy().get("mfa_required")) and not mfa.has_mfa(uid)
 
 
 def me(u):
-    return {"id": u["id"], "username": u["username"], "display_name": u["display_name"], "role": u["role"], "level": u["level"], "via": u["via"]}
+    return {"id": u["id"], "username": u["username"], "display_name": u["display_name"], "role": u["role"], "level": u["level"], "via": u["via"],
+            "mfa_setup": bool(u.get("mfa_setup"))}
 
 
 # ------------------------------------------------------------------ API tokens

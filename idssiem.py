@@ -15,6 +15,7 @@ def main():
     ap.add_argument("--import", dest="files", nargs="*", default=[], metavar="FILE",
                     help="import CSV/XLSX/JSON file(s) before starting the server")
     ap.add_argument("--reset-password", metavar="USER", help="set a new password for USER (recovery if the administrator is locked out), then exit")
+    ap.add_argument("--reset-mfa", metavar="USER", help="remove the authenticator app, passkeys and recovery codes of USER (recovery if the phone is lost), then exit")
     ap.add_argument("--sync", action="store_true", help="pull events from the CycurGUARD backend, then exit (URL and token from the Users page, or CYCURGUARD_URL and CYCURGUARD_TOKEN)")
     ap.add_argument("--days", type=int, default=None, help="with --sync: how far back the very first sync goes (default: everything)")
     a = ap.parse_args()
@@ -30,6 +31,14 @@ def main():
         print(f"done: {res['rows_new']:,} new, {res['rows_duplicate']:,} already present, "
               f"{res['rows_matched_to_earlier_import']:,} matched to earlier file imports")
         print("detections:", res["detections"])
+        return
+    if a.reset_mfa:
+        r = db.conn().execute("SELECT id FROM users WHERE username=?", (a.reset_mfa,)).fetchone()
+        if not r:
+            sys.exit(f"no such user: {a.reset_mfa}")
+        from ids_siem import mfa
+        n = mfa.admin_reset(r["id"], "cli")["removed"]
+        print(f"{n} two-step method(s) removed and sessions ended")
         return
     if a.reset_password:
         import getpass

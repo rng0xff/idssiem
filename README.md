@@ -22,7 +22,7 @@ Data is stored in `data/siem.db` (SQLite). Set `IDS_SIEM_DB` to use another path
 | Detections | Tune the six rules; suppression rules for known-benign patterns; alerts keep their triage state when rules run again |
 | Event catalog | Severity and category per event type. Defaults are a starting point, adjust to your TARA |
 | Data | Sync from CycurGUARD, import (CSV, XLSX, JSON), import history, data quality, settings |
-| Account | Change your password, create and revoke your own API tokens |
+| Account | Change your password, two-step sign-in (authenticator app, passkeys, recovery codes), create and revoke your own API tokens |
 | Users (admin) | Accounts and roles, sign-in and token rules, backend connection, all tokens, wizard mode |
 | Audit log (admin) | Who did what and when: search, filter by person, action group or date, export CSV, verify integrity |
 
@@ -103,11 +103,24 @@ curl -H "Authorization: Bearer ids_..." http://127.0.0.1:8765/api/summary
 
 Notes and cases are attributed to the signed-in user. Locked out? Run `python idssiem.py --reset-password USER` on the machine.
 
+## Two-step sign-in (MFA and passkeys)
+
+Everyone can add a second step under **Account → Two-step sign-in**. Every change asks for the password again.
+
+- **Authenticator app (TOTP).** Scan the QR code (or type the key) in any authenticator app, then enter the 6-digit code. Codes are 6 digits, 30 seconds, one step of clock drift is tolerated and a code works once.
+- **Passkeys (WebAuthn).** Add a platform passkey (Windows Hello, Touch ID, phone) or a security key. A passkey asks for your fingerprint, face or PIN and signs you in on its own (button **Sign in with a passkey**), or answers the second step after your password. ES256 and RS256 keys are supported, attestation is not evaluated (the key is trusted when you add it).
+- **Recovery codes.** Ten single-use codes are created with your first method and shown once; they are stored as hashes. New codes make the old ones useless.
+- **Sign-in.** With a second step set up, the password leads to a second screen for a code, a recovery code or a passkey. Wrong codes count towards the same lock-out as wrong passwords (5 attempts, 5 minutes), and the sign-in times out after 5 minutes.
+- **Policy.** An administrator can require two-step sign-in on the Users page (not allowed until they have it themselves). People without it can then only reach their Account page until they have set it up. API tokens are not affected, they have their own permission and expiry.
+- **Lost phone or key.** An administrator resets a person's two-step sign-in in the user's panel; on the computer, `python idssiem.py --reset-mfa USER` does the same. Both sign the person out everywhere. The reset and every change are in the audit log (`mfa.*`).
+
+Passkeys need a domain name as their identity, so they work only when you open the tool as **http://localhost:8765** (not 127.0.0.1) and are bound to that address and port. Authenticator codes work at either address. The TOTP key is stored in the database file in clear text, as it has to be to check codes, like the backend token; protect the file. The code is `ids_siem/mfa.py`, `webauthn.py` (standard library only) and `qr.py`.
+
 ## Audit log
 
 Every state-changing action is recorded with time, person, channel (session or API token), action, target and a short detail:
 
-- sign-ins, failed sign-ins (including unknown usernames), sign-outs, password changes, denied requests
+- sign-ins (with the method used), failed sign-ins (including unknown usernames), sign-outs, password changes, two-step changes (authenticator app, passkeys, recovery codes, resets), denied requests
 - users and API tokens, rule and backend changes, settings
 - alert status, assignee and notes; suppression rules created, switched on or off and deleted; case reports generated; case creation, changes, tasks, notes, links, close, reopen, delete
 - event notes, event catalog changes, detection runs, imports, JSON ingests, import removal, deleting all data, CSV exports
