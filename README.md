@@ -18,6 +18,7 @@ Data is stored in `data/siem.db` (SQLite). Set `IDS_SIEM_DB` to use another path
 | Events | Search with `vin:` `ecu:` `sev:` `name:` `id:` `type:` `cat:` `desc:` `ts:invalid`, `-` to negate, plus facets, time range, detail drawer with analyst notes, CSV export of the current result |
 | Vehicles | Risk ranking, per-vehicle timeline, what each ECU reported, alerts |
 | Alerts | Triage queue: status (new, in progress, resolved, false positive), assignee, notes, history, bulk actions |
+| Cases | Create a case from one or more alerts (alert drawer or bulk action). Checklist (default tasks editable on the Data page), owner, due date, activity log, link or unlink alerts, close with a resolution (open alerts can be resolved with it), reopen. The dashboard shows status, overdue, ownerless, age, opened vs closed per week, time to close, severity, owners and resolutions |
 | Detections | Tune the six rules; alerts keep their triage state when rules run again |
 | Event catalog | Severity and category per event type. Defaults are a starting point, adjust to your TARA |
 | Data | Import (CSV, XLSX, JSON), import history, data quality, settings |

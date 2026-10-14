@@ -258,6 +258,7 @@ def summary(p):
     out["open_alerts"] = {x["severity"]: x["n"] for x in al}
     out["open_alerts_total"] = sum(x["n"] for x in al)
     out["unclassified_types"] = one_val("SELECT COUNT(*) FROM catalog WHERE auto=1")
+    out["open_cases"] = one_val("SELECT COUNT(*) FROM cases WHERE status <> 'closed'")
     return out
 
 

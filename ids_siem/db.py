@@ -56,12 +56,44 @@ CREATE TABLE IF NOT EXISTS event_notes(
   event_id INTEGER PRIMARY KEY, note TEXT, updated_at INTEGER
 );
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS cases(
+  id INTEGER PRIMARY KEY,
+  title TEXT, summary TEXT DEFAULT '',
+  severity TEXT, sev_num INTEGER,
+  status TEXT DEFAULT 'open',
+  owner TEXT DEFAULT '', due_date TEXT DEFAULT '',
+  resolution TEXT DEFAULT '', findings TEXT DEFAULT '',
+  created_by TEXT DEFAULT '',
+  created_at INTEGER, updated_at INTEGER, closed_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS ix_cases_status ON cases(status);
+CREATE TABLE IF NOT EXISTS case_alerts(
+  case_id INTEGER, alert_id INTEGER UNIQUE, linked_at INTEGER,
+  PRIMARY KEY(case_id, alert_id)
+);
+CREATE TABLE IF NOT EXISTS case_tasks(
+  id INTEGER PRIMARY KEY, case_id INTEGER, title TEXT,
+  done INTEGER DEFAULT 0, done_at INTEGER, done_by TEXT DEFAULT '', position INTEGER
+);
+CREATE INDEX IF NOT EXISTS ix_ct_case ON case_tasks(case_id);
+CREATE TABLE IF NOT EXISTS case_log(
+  id INTEGER PRIMARY KEY, case_id INTEGER, author TEXT, kind TEXT, body TEXT, created_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS ix_cl_case ON case_log(case_id);
 """
 
 DEFAULT_SETTINGS = {
     # Timestamps before this date (or in the far future) are treated as an unsynchronised ECU clock.
     "ts_min": "2022-01-01",
     "analyst": "analyst",
+    # Checklist every new case starts with (editable on the Data page, one line per task)
+    "case_tasks": [
+        "Review the linked events and the vehicle history",
+        "Check whether other vehicles show the same pattern",
+        "Assess the impact on TARA threat scenarios and CSMS",
+        "Decide on the response and whether reporting is needed",
+        "Document the findings",
+    ],
     "rules": {
         "high_sev": {"enabled": True, "min_severity": "high"},
         "burst": {"enabled": True, "threshold": 3, "window_min": 60},
@@ -121,13 +153,15 @@ def put_settings(new):
         cur["ts_min"] = str(new["ts_min"])
     if "analyst" in new:
         cur["analyst"] = str(new["analyst"])[:60] or "analyst"
+    if isinstance(new.get("case_tasks"), list):
+        cur["case_tasks"] = [str(t).strip()[:200] for t in new["case_tasks"] if str(t).strip()][:20]
     if isinstance(new.get("rules"), dict):
         for rule, params in new["rules"].items():
             if rule in cur["rules"] and isinstance(params, dict):
                 for k, v in params.items():
                     if k in cur["rules"][rule]:
                         cur["rules"][rule][k] = v
-    for k in ("ts_min", "analyst", "rules"):
+    for k in ("ts_min", "analyst", "rules", "case_tasks"):
         c.execute("INSERT OR REPLACE INTO settings(key, value) VALUES(?, ?)", (k, json.dumps(cur[k])))
     c.commit()
     recompute_ts_ok()

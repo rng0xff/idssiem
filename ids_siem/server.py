@@ -17,7 +17,7 @@ import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from . import catalog, db, ingest, query, rules
+from . import cases, catalog, db, ingest, query, rules
 
 STATIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static")
 MAX_BODY = 1024 * 1024 * 1024
@@ -138,6 +138,91 @@ def api_run(h, p):
     return rules.run_all()
 
 
+# ------------------------------------------------------------------ cases
+def _case_call(fn, *args):
+    try:
+        return fn(*args)
+    except cases.NotFound as e:
+        raise HttpError(404, str(e))
+    except ValueError as e:
+        raise HttpError(400, str(e))
+
+
+@route("GET", "/api/cases")
+def api_cases(h, p):
+    return cases.list_cases(p)
+
+
+@route("POST", "/api/cases")
+def api_case_create(h, p):
+    return _case_call(cases.create_case, h.json_body())
+
+
+@route("GET", "/api/cases/dashboard")
+def api_cases_dashboard(h, p):
+    return cases.dashboard()
+
+
+@route("GET", "/api/cases/picker")
+def api_cases_picker(h, p):
+    return cases.open_cases_for_picker()
+
+
+@route("GET", r"/api/cases/(\d+)")
+def api_case(h, p, cid):
+    return _case_call(cases.get_case, int(cid))
+
+
+@route("PATCH", r"/api/cases/(\d+)")
+def api_case_update(h, p, cid):
+    return _case_call(cases.update_case, int(cid), h.json_body())
+
+
+@route("DELETE", r"/api/cases/(\d+)")
+def api_case_delete(h, p, cid):
+    return _case_call(cases.delete_case, int(cid))
+
+
+@route("POST", r"/api/cases/(\d+)/close")
+def api_case_close(h, p, cid):
+    return _case_call(cases.close_case, int(cid), h.json_body())
+
+
+@route("POST", r"/api/cases/(\d+)/reopen")
+def api_case_reopen(h, p, cid):
+    return _case_call(cases.reopen_case, int(cid))
+
+
+@route("POST", r"/api/cases/(\d+)/comments")
+def api_case_comment(h, p, cid):
+    return _case_call(cases.add_comment, int(cid), h.json_body())
+
+
+@route("POST", r"/api/cases/(\d+)/tasks")
+def api_case_task_add(h, p, cid):
+    return _case_call(cases.add_task, int(cid), h.json_body())
+
+
+@route("PATCH", r"/api/cases/(\d+)/tasks/(\d+)")
+def api_case_task_update(h, p, cid, tid):
+    return _case_call(cases.update_task, int(cid), int(tid), h.json_body())
+
+
+@route("DELETE", r"/api/cases/(\d+)/tasks/(\d+)")
+def api_case_task_delete(h, p, cid, tid):
+    return _case_call(cases.delete_task, int(cid), int(tid))
+
+
+@route("POST", r"/api/cases/(\d+)/alerts")
+def api_case_link(h, p, cid):
+    return _case_call(cases.link_alerts, int(cid), h.json_body())
+
+
+@route("DELETE", r"/api/cases/(\d+)/alerts/(\d+)")
+def api_case_unlink(h, p, cid, aid):
+    return _case_call(cases.unlink_alert, int(cid), int(aid))
+
+
 @route("GET", "/api/rules")
 def api_rules(h, p):
     cfg = db.get_settings()["rules"]
@@ -240,7 +325,7 @@ def api_reset(h, p):
     if h.json_body().get("confirm") != "DELETE ALL EVENTS":
         raise HttpError(400, "confirmation text missing")
     c = db.conn()
-    for t in ("events", "alerts", "alert_comments", "event_notes", "imports"):
+    for t in ("events", "alerts", "alert_comments", "event_notes", "imports", "cases", "case_alerts", "case_tasks", "case_log"):
         c.execute(f"DELETE FROM {t}")
     c.commit()
     return {"ok": True}

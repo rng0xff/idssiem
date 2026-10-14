@@ -203,6 +203,11 @@ def run_all():
                         c.execute("INSERT INTO alert_comments(alert_id, author, body, created_at) VALUES(?,?,?,?)",
                                   (row["id"], "system", f"Re-opened: {a['count'] - row['event_count']} new matching event(s).", now))
                         stats["reopened"] += 1
+                        cr = c.execute("SELECT case_id FROM case_alerts WHERE alert_id=?", (row["id"],)).fetchone()
+                        if cr:
+                            c.execute("INSERT INTO case_log(case_id, author, kind, body, created_at) VALUES(?,?,?,?,?)",
+                                      (cr["case_id"], "system", "system",
+                                       f"Alert #{row['id']} was re-opened: {a['count'] - row['event_count']} new matching event(s). Check whether this case needs more work.", now))
                     changed = c.execute("SELECT 1 FROM alerts WHERE id=? AND (event_count<>? OR severity<>? OR title<>?)",
                                         (row["id"], a["count"], a["severity"], a["title"])).fetchone()
                     c.execute("UPDATE alerts SET title=?, severity=?, sev_num=?, first_ts=?, last_ts=?, event_count=?, details=?, filter=?, status=?, "
@@ -237,24 +242,36 @@ def _alert_row(r):
 def list_alerts(p):
     c = db.conn()
     w, a = ["1=1"], []
-    for key, col in (("status", "status"), ("severity", "severity"), ("rule", "rule")):
+    for key, col in (("status", "alerts.status"), ("severity", "alerts.severity"), ("rule", "alerts.rule")):
         vals = [x for v in p.get(key, []) for x in v.split(",") if x]
         if vals:
             w.append(f"{col} IN ({','.join('?' * len(vals))})")
             a += vals
     if p.get("vin"):
-        w.append("vin = ?")
+        w.append("alerts.vin = ?")
         a.append(p["vin"][0].upper())
     if p.get("q") and p["q"][0].strip():
-        w.append("(title LIKE ? OR vin LIKE ?)")
+        w.append("(alerts.title LIKE ? OR alerts.vin LIKE ?)")
         a += [f"%{p['q'][0].strip()}%"] * 2
-    sort = {"severity": "sev_num", "events": "event_count", "last": "last_ts", "updated": "updated_at", "status": "status"}.get((p.get("sort") or ["severity"])[0], "sev_num")
+    cs = (p.get("case") or [""])[0]
+    if cs == "none":
+        w.append("NOT EXISTS (SELECT 1 FROM case_alerts x WHERE x.alert_id = alerts.id)")
+    elif cs == "any":
+        w.append("EXISTS (SELECT 1 FROM case_alerts x WHERE x.alert_id = alerts.id)")
+    elif cs.isdigit():
+        w.append("EXISTS (SELECT 1 FROM case_alerts x WHERE x.alert_id = alerts.id AND x.case_id = ?)")
+        a.append(int(cs))
+    sort = {"severity": "alerts.sev_num", "events": "alerts.event_count", "last": "alerts.last_ts", "updated": "alerts.updated_at",
+            "status": "alerts.status"}.get((p.get("sort") or ["severity"])[0], "alerts.sev_num")
     d = "ASC" if (p.get("dir") or ["desc"])[0] == "asc" else "DESC"
     page = max(1, int((p.get("page") or ["1"])[0]))
     size = min(200, max(1, int((p.get("size") or ["50"])[0])))
     where = " AND ".join(w)
     total = c.execute(f"SELECT COUNT(*) FROM alerts WHERE {where}", a).fetchone()[0]
-    rows = c.execute(f"SELECT * FROM alerts WHERE {where} ORDER BY {sort} {d}, updated_at DESC LIMIT ? OFFSET ?", a + [size, (page - 1) * size]).fetchall()
+    rows = c.execute(
+        f"SELECT alerts.*, ca.case_id AS case_id, cs.status AS case_status FROM alerts "
+        f"LEFT JOIN case_alerts ca ON ca.alert_id = alerts.id LEFT JOIN cases cs ON cs.id = ca.case_id "
+        f"WHERE {where} ORDER BY {sort} {d}, alerts.updated_at DESC LIMIT ? OFFSET ?", a + [size, (page - 1) * size]).fetchall()
     counts = {r["status"]: r["n"] for r in c.execute("SELECT status, COUNT(*) n FROM alerts GROUP BY status")}
     return {"total": total, "page": page, "size": size, "alerts": [_alert_row(r) for r in rows], "status_counts": counts}
 
@@ -265,6 +282,8 @@ def get_alert(aid):
     if not r:
         return None
     d = _alert_row(r)
+    cs = c.execute("SELECT cs.id, cs.title, cs.status FROM case_alerts ca JOIN cases cs ON cs.id=ca.case_id WHERE ca.alert_id=?", (aid,)).fetchone()
+    d["case"] = dict(cs) if cs else None
     d["comments"] = [dict(x) for x in c.execute("SELECT * FROM alert_comments WHERE alert_id=? ORDER BY created_at", (aid,))]
     d["rule_description"] = RULE_INFO.get(d["rule"], ("", ""))[1]
     return d

@@ -5,6 +5,7 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmtN = n => new Intl.NumberFormat().format(n ?? 0);
+const ROUTES = {};
 const SEVS = ['info', 'low', 'medium', 'high', 'critical'];
 const sevColor = s => `var(--sev-${s})`;
 const CATS = ['var(--cat1)', 'var(--cat2)', 'var(--cat3)', 'var(--cat4)', 'var(--cat5)', 'var(--cat6)', 'var(--cat7)', 'var(--cat8)'];
@@ -20,6 +21,8 @@ function fmtDay(ms) { return ms == null ? '' : new Date(ms).toISOString().slice(
 function fmtMin(ms) { return new Date(ms).toISOString().slice(0, 16).replace('T', ' '); }
 const sevHtml = s => `<span class="sev ${esc(s)}">${esc(s)}</span>`;
 const statusLabel = s => ({ new: 'New', in_progress: 'In progress', resolved: 'Resolved', false_positive: 'False positive' }[s] || s);
+const caseStatusLabel = s => ({ open: 'Open', investigating: 'Investigating', waiting: 'Waiting', closed: 'Closed' }[s] || s);
+const caseStatusHtml = s => `<span class="status ${esc(s)}">${esc(caseStatusLabel(s))}</span>`;
 const statusHtml = s => `<span class="status ${esc(s)}">${esc(statusLabel(s))}</span>`;
 function ago(ms) {
   if (!ms) return '';

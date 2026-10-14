@@ -20,10 +20,9 @@ function hashFor(name, obj = {}, arg) {
 function go(name, obj, arg) { const h = hashFor(name, obj, arg); if (location.hash === h) render(); else location.hash = h; }
 const paramsObj = P => Object.fromEntries(P.entries());
 
-const ROUTES = {};
 async function render() {
   closeDrawer();
-  view.onclick = view.oninput = view.onchange = null;
+  view.onclick = view.oninput = view.onchange = view.onkeydown = null;
   window.__reloadAlerts = null;
   const { name, arg, params } = parseHash();
   $$('#nav a').forEach(a => a.classList.toggle('on', a.dataset.r === (name === 'vehicle' ? 'vehicles' : name)));
@@ -40,6 +39,7 @@ async function refreshChrome() {
     const s = await api('/api/summary');
     const b = $('#alert-badge');
     b.hidden = !s.open_alerts_total; b.textContent = fmtN(s.open_alerts_total);
+    const cb = $('#case-badge'); cb.hidden = !s.open_cases; cb.textContent = fmtN(s.open_cases);
     $('#doc').innerHTML = s.total ? `<b>${fmtN(s.total)}</b> events from <b>${fmtN(s.vins)}</b> vehicles${s.first_ts ? `, ${fmtDay(s.first_ts)} to ${fmtDay(s.last_ts)}` : ''}, times in UTC` : 'No data loaded';
   } catch (_) { /* ignore */ }
 }
@@ -84,6 +84,7 @@ ROUTES.overview = async function () {
     <a class="fig" href="#/events"><div class="n">${fmtN(sum.total)}</div><div class="l">Events</div><div class="s">${fmtN(sum.types)} event types, ${fmtN(sum.ecus)} ECUs</div></a>
     <a class="fig" href="#/vehicles"><div class="n">${fmtN(sum.vins)}</div><div class="l">Vehicles</div></a>
     <a class="fig" href="#/alerts"><div class="n">${fmtN(sum.open_alerts_total)}</div><div class="l">Open alerts</div><div class="s">${SEVS.slice().reverse().filter(s => oa[s]).map(s => `${oa[s]} ${s}`).join(', ') || 'none'}</div></a>
+    <a class="fig" href="#/cases"><div class="n">${fmtN(sum.open_cases)}</div><div class="l">Open cases</div></a>
     <a class="fig" href="${hashFor('events', { severity: 'high,critical' })}"><div class="n">${fmtN(sum.high)}</div><div class="l">High or critical events</div></a>
     <a class="fig" href="${hashFor('events', { ts: 'invalid' })}"><div class="n">${fmtN(sum.no_ts)}</div><div class="l">Without usable time</div><div class="s">${(sum.no_ts / sum.total * 100).toFixed(1)}% of events</div></a>
     ${sum.unclassified_types ? `<a class="fig" href="#/catalog"><div class="n">${fmtN(sum.unclassified_types)}</div><div class="l">Unclassified event types</div></a>` : ''}
@@ -282,17 +283,18 @@ ROUTES.alerts = async function (arg, P) {
   <div class="filters"><input type="search" id="aq" value="${esc(raw.q || '')}" placeholder="Search title or VIN" aria-label="Search alerts">
     <select id="asev" aria-label="Severity"><option value="">Any severity</option>${SEVS.slice().reverse().map(s => `<option ${raw.severity === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
     <select id="arule" aria-label="Detection"><option value="">Any detection</option>${rulesList.map(r => `<option value="${r.id}" ${raw.rule === r.id ? 'selected' : ''}>${esc(r.title)}</option>`).join('')}</select>
+    <select id="acase" aria-label="Case"><option value="">Any case state</option><option value="none" ${raw.case === 'none' ? 'selected' : ''}>Not in a case</option><option value="any" ${raw.case === 'any' ? 'selected' : ''}>In a case</option></select>
     <span class="spacer" style="flex:1"></span>
-    <span id="bulk" style="display:none"><span id="bulkn" class="muted"></span> <button class="btn small" data-bulk="in_progress">Start</button> <button class="btn small" data-bulk="resolved">Resolve</button> <button class="btn small" data-bulk="false_positive">Mark false positive</button></span></div>
+    <span id="bulk" style="display:none"><span id="bulkn" class="muted"></span> <button class="btn small primary" data-bulkcase="1">Create case</button> <button class="btn small" data-bulk="in_progress">Start</button> <button class="btn small" data-bulk="resolved">Resolve</button> <button class="btn small" data-bulk="false_positive">Mark false positive</button></span></div>
   <div id="alist"></div>`;
 
-  const nav = patch => { const n = { tab, q: raw.q, severity: raw.severity, rule: raw.rule, sort, dir, ...patch }; Object.keys(n).forEach(k => !n[k] && delete n[k]); go('alerts', n); };
+  const nav = patch => { const n = { tab, q: raw.q, severity: raw.severity, rule: raw.rule, case: raw.case, sort, dir, ...patch }; Object.keys(n).forEach(k => !n[k] && delete n[k]); go('alerts', n); };
   const load = async () => {
-    const res = await api('/api/alerts?' + qs({ status, severity: raw.severity, rule: raw.rule, q: raw.q, sort, dir, page, size: 50 }));
+    const res = await api('/api/alerts?' + qs({ status, severity: raw.severity, rule: raw.rule, case: raw.case, q: raw.q, sort, dir, page, size: 50 }));
     const sc = res.status_counts, cnt = k => k === 'all' ? Object.values(sc).reduce((a, b) => a + b, 0) : k === 'open' ? (sc.new || 0) + (sc.in_progress || 0) : (sc[k] || 0);
     $('#tabs').innerHTML = TABS.map(t => `<button data-tab="${t[0]}" class="${t[0] === tab ? 'on' : ''}">${t[1]}<span class="ct">${fmtN(cnt(t[0]))}</span></button>`).join('');
-    $('#alist').innerHTML = res.alerts.length ? `<div class="tablewrap"><table><thead><tr><th><input type="checkbox" id="chkall" aria-label="Select all"></th>${sortHeader('Severity', 'severity', sort, dir)}<th>Alert</th><th>Detection</th><th>Vehicle</th>${sortHeader('Events', 'events', sort, dir, 'num')}${sortHeader('Last event', 'last', sort, dir)}${sortHeader('Status', 'status', sort, dir)}<th>Assignee</th></tr></thead><tbody>
-      ${res.alerts.map(a => `<tr class="row" data-aid="${a.id}"><td><input type="checkbox" class="chk" value="${a.id}" aria-label="Select alert ${a.id}"></td><td>${sevHtml(a.severity)}</td><td>${esc(a.title)}</td><td class="muted">${esc(a.rule_title)}</td><td class="mono">${a.vin ? esc(a.vin) : '<span class="muted">fleet</span>'}</td><td class="num">${fmtN(a.event_count)}</td><td class="nowrap">${fmtDay(a.last_ts) || '<span class="muted">none</span>'}</td><td>${statusHtml(a.status)}</td><td>${esc(a.assignee)}</td></tr>`).join('')}</tbody></table></div>${pagerHtml(res.total, res.page, res.size)}`
+    $('#alist').innerHTML = res.alerts.length ? `<div class="tablewrap"><table><thead><tr><th><input type="checkbox" id="chkall" aria-label="Select all"></th>${sortHeader('Severity', 'severity', sort, dir)}<th>Alert</th><th>Detection</th><th>Vehicle</th><th>Case</th>${sortHeader('Events', 'events', sort, dir, 'num')}${sortHeader('Last event', 'last', sort, dir)}${sortHeader('Status', 'status', sort, dir)}<th>Assignee</th></tr></thead><tbody>
+      ${res.alerts.map(a => `<tr class="row" data-aid="${a.id}"><td><input type="checkbox" class="chk" value="${a.id}" aria-label="Select alert ${a.id}"></td><td>${sevHtml(a.severity)}</td><td>${esc(a.title)}</td><td class="muted">${esc(a.rule_title)}</td><td class="mono">${a.vin ? esc(a.vin) : '<span class="muted">fleet</span>'}</td><td>${a.case_id ? `<a href="#/cases/${a.case_id}" data-stop>#${a.case_id}</a>` : '<span class="muted">none</span>'}</td><td class="num">${fmtN(a.event_count)}</td><td class="nowrap">${fmtDay(a.last_ts) || '<span class="muted">none</span>'}</td><td>${statusHtml(a.status)}</td><td>${esc(a.assignee)}</td></tr>`).join('')}</tbody></table></div>${pagerHtml(res.total, res.page, res.size)}`
       : `<div class="panel"><div class="empty"><b>${tab === 'open' ? 'No open alerts' : 'No alerts here'}</b>${tab === 'open' ? 'Detections run automatically after every import.' : 'Change the tab or filters.'}</div></div>`;
   };
   await load();
@@ -305,6 +307,8 @@ ROUTES.alerts = async function (arg, P) {
     const so = e.target.closest('[data-sort]'); if (so) { const k = so.dataset.sort; return nav({ sort: k, dir: sort === k && dir === 'desc' ? 'asc' : 'desc', page: undefined }); }
     if (e.target.id === 'chkall') { $$('.chk').forEach(c => { c.checked = e.target.checked; }); return updateBulk(); }
     if (e.target.classList.contains('chk')) { e.stopPropagation(); return updateBulk(); }
+    const bc = e.target.closest('[data-bulkcase]');
+    if (bc) { const ids = $$('.chk:checked').map(c => +c.value); if (ids.length) openCaseForm(ids); return; }
     const bk = e.target.closest('[data-bulk]');
     if (bk) { try { const ids = $$('.chk:checked').map(c => +c.value); await api('/api/alerts/bulk', { method: 'POST', json: { ids, status: bk.dataset.bulk } }); toast(`${ids.length} alert(s) updated`); await load(); updateBulk(); refreshChrome(); } catch (err) { toast(err.message, true); } return; }
     if (e.target.id === 'rerun') { try { const r = await api('/api/detections/run', { method: 'POST' }); toast(`Detections done: ${r.created} new, ${r.updated} updated, ${r.reopened} re-opened`); await load(); refreshChrome(); } catch (err) { toast(err.message, true); } return; }
@@ -313,6 +317,7 @@ ROUTES.alerts = async function (arg, P) {
   $('#aq').addEventListener('change', () => nav({ q: $('#aq').value.trim(), page: undefined }));
   $('#asev').addEventListener('change', e => nav({ severity: e.target.value, page: undefined }));
   $('#arule').addEventListener('change', e => nav({ rule: e.target.value, page: undefined }));
+  $('#acase').addEventListener('change', e => nav({ case: e.target.value, page: undefined }));
   if (arg) openAlert(+arg);
 };
 
@@ -333,6 +338,9 @@ async function openAlert(id) {
       ${det}
     </dl>
     <p style="margin:14px 0"><a class="btn primary" href="${hashFor('events', f)}">Show matching events</a></p>
+    <h3>Case</h3>
+    ${a.case ? `<p style="margin:0"><a href="${hashFor('cases', {}, a.case.id)}">Case #${a.case.id}: ${esc(a.case.title)}</a> ${caseStatusHtml(a.case.status)}</p>`
+      : `<p style="margin:0"><button class="btn primary" data-act="new-case" data-id="${a.id}">Create case</button> <button class="btn" data-act="link-case" data-id="${a.id}">Add to existing case</button></p>`}
     <h3>Assignee</h3>
     <p style="margin:0"><input type="text" id="assignee" value="${esc(a.assignee)}" placeholder="Name" style="width:200px"> <button class="btn small" data-act="set-assignee" data-id="${a.id}">Save</button></p>
     <h3>Notes and history</h3>
@@ -343,6 +351,8 @@ async function openAlert(id) {
 $('#drawer').addEventListener('click', async e => {
   const b = e.target.closest('[data-act]'); if (!b) return;
   const id = +b.dataset.id, act = b.dataset.act;
+  if (act === 'new-case') { openCaseForm([id]).catch(err => toast(err.message, true)); return; }
+  if (act === 'link-case') { openLinkCase(id).catch(err => toast(err.message, true)); return; }
   try {
     if (act === 'set-status') await api('/api/alerts/' + id, { method: 'PATCH', json: { status: b.dataset.status } });
     else if (act === 'set-assignee') await api('/api/alerts/' + id, { method: 'PATCH', json: { assignee: $('#assignee').value.trim() } });
@@ -416,13 +426,14 @@ ROUTES.data = async function () {
   <div class="panel"><h2>Import history</h2>${imps.length ? `<div class="tablewrap"><table><thead><tr><th>When (UTC)</th><th>File</th><th class="num">Rows</th><th class="num">New</th><th class="num">Already present</th><th class="num">Unusable</th><th class="num">Still stored</th><th></th></tr></thead><tbody>
     ${imps.map(i => `<tr><td class="nowrap mono">${esc(fmtMin(i.imported_at))}</td><td>${esc(i.filename)}</td><td class="num">${fmtN(i.rows_total)}</td><td class="num">${fmtN(i.rows_new)}</td><td class="num">${fmtN(i.rows_dup)}</td><td class="num">${fmtN(i.rows_invalid)}</td><td class="num">${fmtN(i.events_now)}</td><td><button class="btn small danger" data-delimp="${i.id}">Remove events</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">No imports yet.</div>'}</div>
   <div class="panel"><h2>Settings</h2><div class="params"><label>Earliest plausible event date<input type="text" id="tsmin" value="${esc(st.ts_min)}" placeholder="YYYY-MM-DD"></label><label>Your name for notes<input type="text" id="analyst" value="${esc(st.analyst)}"></label></div>
+    <label class="field" style="margin-top:14px;max-width:640px"><span>Checklist every new case starts with, one task per line</span><textarea id="casetasks" rows="5">${esc((st.case_tasks || []).join('\n'))}</textarea></label>
     <p class="muted">Vehicles often report an unsynchronised clock (for example 2020 or 1970) until they get a time source. Timestamps before the date above are treated as unusable.</p>
     <p style="margin:0"><button class="btn" id="savest">Save settings</button></p></div>
   <div class="panel"><h2>Feed events from another system</h2><p style="margin-top:0">Post JSON with the same field names as the export. This is the hook for a future REST pull from the backend.</p>
 <pre>curl -X POST http://127.0.0.1:${location.port || 8765}/api/ingest?source=backend \\
   -H "X-SIEM: 1" -H "Content-Type: application/json" \\
   -d '[{"report.event_type":"can","sev_metadata.timestamp":1754754669000,"vin":"SC6GN3DAXSF023632","ecu_name":"ETGW","ecu_id":1,"sev_metadata.event_id":32775,"sev_metadata.name":"IdsMEventConfig_ETGW_ECY_IDPS_RPRT_FRQ_DELTA_TOO_HI","sev_metadata.description":"..."}]'</pre></div>
-  <div class="panel"><h2>Delete all data</h2><p style="margin-top:0">Removes every event, alert and note. Catalog and settings stay.</p><input type="text" id="resetconf" placeholder='Type DELETE ALL EVENTS' size="24"> <button class="btn danger" id="reset">Delete everything</button></div>`;
+  <div class="panel"><h2>Delete all data</h2><p style="margin-top:0">Removes every event, alert, case and note. Catalog and settings stay.</p><input type="text" id="resetconf" placeholder='Type DELETE ALL EVENTS' size="24"> <button class="btn danger" id="reset">Delete everything</button></div>`;
 
   const doImport = async file => {
     const box = $('#impres'); box.innerHTML = `<p>Importing ${esc(file.name)} (${(file.size / 1048576).toFixed(1)} MB)…</p>`;
@@ -438,7 +449,7 @@ ROUTES.data = async function () {
   ['dragenter', 'dragover'].forEach(n => drop.addEventListener(n, e => { e.preventDefault(); drop.classList.add('over'); }));
   ['dragleave', 'drop'].forEach(n => drop.addEventListener(n, e => { e.preventDefault(); drop.classList.remove('over'); }));
   drop.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if (f) doImport(f); });
-  $('#savest').addEventListener('click', async () => { try { await api('/api/settings', { method: 'PUT', json: { ts_min: $('#tsmin').value.trim(), analyst: $('#analyst').value.trim() } }); toast('Settings saved'); render(); } catch (e) { toast(e.message, true); } });
+  $('#savest').addEventListener('click', async () => { try { await api('/api/settings', { method: 'PUT', json: { ts_min: $('#tsmin').value.trim(), analyst: $('#analyst').value.trim(), case_tasks: $('#casetasks').value.split('\n').map(x => x.trim()).filter(Boolean) } }); toast('Settings saved'); render(); } catch (e) { toast(e.message, true); } });
   $('#reset').addEventListener('click', async () => { try { await api('/api/reset', { method: 'POST', json: { confirm: $('#resetconf').value } }); toast('All events deleted'); render(); } catch (e) { toast(e.message, true); } });
   view.onclick = async e => {
     const g = e.target.closest('[data-go]'); if (g) { location.hash = g.dataset.go; return; }
