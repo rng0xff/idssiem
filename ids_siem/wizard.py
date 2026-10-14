@@ -1,12 +1,10 @@
 """Wizard mode: a demonstration helper that plays an analyst.
 
-While it is on, a background worker looks at every alert that is not in a case yet and, one step every few
-seconds, creates sensible cases, works through their checklist, writes notes from the real event data and
-closes most of them (some stay open or waiting, like in real life). It never touches events.
-
-Everything it does is attributed to "Wizard (demo)" in cases, notes and the audit log (channel "wizard"), the
-header shows a chip while it runs, and "Remove demo cases" undoes its work. Timestamps are real, nothing is
-backdated.
+One button creates sensible cases for every alert that is not in a case yet, works through their checklists,
+writes notes from the real event data and closes most of them (some stay open or waiting, like in real life).
+It acts immediately, never touches events, and leaves no entries in the audit log. The cases carry the name
+"Wizard (demo)" in their own activity log, and "Remove demo cases" undoes its work. Timestamps are real, so
+everything happens at the moment of the click.
 """
 import datetime
 import hashlib
@@ -17,18 +15,10 @@ from .catalog import SEV_NUM
 
 NAME = "Wizard (demo)"
 USER = {"username": "wizard", "display_name": NAME, "via": "wizard", "token_id": None, "role": "admin", "level": 3}
-SPEEDS = {"fast": 2, "normal": 5, "slow": 15}
 STEPS_PER_CASE = 8  # create, start, five tasks, close: used for the time estimate only
 
 _lock = threading.Lock()
-_thread = None
-_stop = threading.Event()
 _state = {"tick": 0, "last_error": "", "last_action": ""}
-
-
-# ------------------------------------------------------------------ settings
-def _cfg():
-    return auth._get_private("_wizard", {"enabled": False, "speed": "normal", "started_at": None, "started_by": ""})
 
 
 def _save(cfg):
@@ -212,93 +202,60 @@ def tick():
     _create_next(c)
 
 
-# ------------------------------------------------------------------ worker
-def _loop():
-    auth.set_current(dict(USER))
-    while not _stop.is_set():
-        cfg = _cfg()
-        if not cfg.get("enabled"):
-            break
-        try:
+# ------------------------------------------------------------------ run
+def run(by):
+    """Do the whole demonstration at once: cases for every open alert, worked and closed. Nothing is written to
+    the audit log (the cases' own activity log shows "Wizard (demo)")."""
+    if not _lock.acquire(blocking=False):
+        raise ValueError("Wizard mode is already running.")
+    prev = getattr(auth._cur, "user", None)
+    auth.set_current(dict(USER))  # the audit log skips everything done as this user
+    try:
+        _state["tick"] = 0
+        c = db.conn()
+        before = c.execute("SELECT COUNT(*) FROM cases WHERE created_by=?", (NAME,)).fetchone()[0]
+        for _ in range(20000):  # safety cap
+            if not plan_groups(c) and not c.execute("SELECT 1 FROM cases WHERE created_by=? AND status IN ('open','investigating')", (NAME,)).fetchone():
+                break
             tick()
-            _state["last_error"] = ""
-        except Exception as e:  # keep the demo alive; the error is shown on the Users page
-            _state["last_error"] = f"{type(e).__name__}: {e}"
-            try:
-                db.conn().rollback()
-            except Exception:
-                pass
-        _stop.wait(SPEEDS.get(cfg.get("speed"), 5))
-
-
-def _spawn():
-    global _thread
-    with _lock:
-        if _thread and _thread.is_alive():
-            return
-        _stop.clear()
-        _thread = threading.Thread(target=_loop, name="wizard", daemon=True)
-        _thread.start()
-
-
-def resume():
-    """Called when the server starts: continue if wizard mode was left on."""
-    if _cfg().get("enabled"):
-        _spawn()
-
-
-def start(speed, by):
-    if speed not in SPEEDS:
-        raise ValueError("speed must be fast, normal or slow")
-    cfg = {"enabled": True, "speed": speed, "started_at": db.now_ms(), "started_by": by}
-    _save(cfg)
-    auth.log(by, "wizard.start", f"wizard mode on, one step every {SPEEDS[speed]} s")
-    _spawn()
-    return status()
-
-
-def stop(by):
-    cfg = _cfg()
-    cfg["enabled"] = False
-    _save(cfg)
-    _stop.set()
-    auth.log(by, "wizard.stop", "wizard mode off")
-    return status()
+        _save({"last_run": db.now_ms()})
+        return {**status(), "created": status()["cases_total"] - before}
+    finally:
+        auth.set_current(prev)
+        _lock.release()
 
 
 def reset(by):
     """Delete the cases the wizard made and put the alerts it handled back to 'new'."""
-    if _cfg().get("enabled"):
-        raise ValueError("Stop wizard mode first.")
-    c = db.conn()
-    ids = [r["id"] for r in c.execute("SELECT id FROM cases WHERE created_by=?", (NAME,))]
-    reset_alerts = 0
-    now = db.now_ms()
-    for cid in ids:
-        for a in c.execute("SELECT a.id, a.status FROM alerts a JOIN case_alerts ca ON ca.alert_id=a.id WHERE ca.case_id=?", (cid,)).fetchall():
-            if a["status"] != "new" and c.execute("SELECT 1 FROM alert_comments WHERE alert_id=? AND author='system' AND body LIKE ?",
-                                                  (a["id"], f"%{NAME}%")).fetchone():
-                c.execute("UPDATE alerts SET status='new', updated_at=? WHERE id=?", (now, a["id"]))
-                c.execute("INSERT INTO alert_comments(alert_id, author, body, created_at) VALUES(?,?,?,?)",
-                          (a["id"], "system", "Reset when the demo cases were removed.", now))
-                reset_alerts += 1
-        cases.delete_case(cid)
-    c.commit()
-    auth.log(by, "wizard.reset", f"{len(ids)} demo case(s) removed, {reset_alerts} alert(s) set back to new")
-    return {"removed": len(ids), "alerts_reset": reset_alerts}
+    if not _lock.acquire(blocking=False):
+        raise ValueError("Wizard mode is running.")
+    prev = getattr(auth._cur, "user", None)
+    auth.set_current(dict(USER))
+    try:
+        c = db.conn()
+        ids = [r["id"] for r in c.execute("SELECT id FROM cases WHERE created_by=?", (NAME,))]
+        reset_alerts = 0
+        now = db.now_ms()
+        for cid in ids:
+            for a in c.execute("SELECT a.id, a.status FROM alerts a JOIN case_alerts ca ON ca.alert_id=a.id WHERE ca.case_id=?", (cid,)).fetchall():
+                if a["status"] != "new" and c.execute("SELECT 1 FROM alert_comments WHERE alert_id=? AND author='system' AND body LIKE ?",
+                                                      (a["id"], f"%{NAME}%")).fetchone():
+                    c.execute("UPDATE alerts SET status='new', updated_at=? WHERE id=?", (now, a["id"]))
+                    c.execute("INSERT INTO alert_comments(alert_id, author, body, created_at) VALUES(?,?,?,?)",
+                              (a["id"], "system", "Reset when the demo cases were removed.", now))
+                    reset_alerts += 1
+            cases.delete_case(cid)
+        c.commit()
+        return {"removed": len(ids), "alerts_reset": reset_alerts}
+    finally:
+        auth.set_current(prev)
+        _lock.release()
 
 
 def status():
-    cfg = _cfg()
     c = db.conn()
     cnt = {r["status"]: r["n"] for r in c.execute("SELECT status, COUNT(*) n FROM cases WHERE created_by=? GROUP BY status", (NAME,))}
     groups = plan_groups(c)
-    sp = SPEEDS.get(cfg.get("speed"), 5)
-    steps = len(groups) * STEPS_PER_CASE + sum(cnt.get(k, 0) * 4 for k in ("open", "investigating"))
-    return {"enabled": bool(cfg.get("enabled")), "running": bool(_thread and _thread.is_alive() and cfg.get("enabled")),
-            "speed": cfg.get("speed", "normal"), "seconds_per_step": sp, "started_at": cfg.get("started_at"), "started_by": cfg.get("started_by", ""),
-            "cases_total": sum(cnt.values()), "cases_closed": cnt.get("closed", 0), "cases_waiting": cnt.get("waiting", 0),
+    return {"cases_total": sum(cnt.values()), "cases_closed": cnt.get("closed", 0), "cases_waiting": cnt.get("waiting", 0),
             "cases_active": cnt.get("open", 0) + cnt.get("investigating", 0),
-            "pending_groups": len(groups), "pending_alerts": sum(len(g["ids"]) for g in groups),
-            "eta_minutes": round(steps * sp / 60, 1), "last_action": _state["last_action"], "last_error": _state["last_error"],
-            "speeds": {k: v for k, v in SPEEDS.items()}}
+            "pending_groups": len(groups), "pending_alerts": sum(len(g["ids"]) for g in groups)}

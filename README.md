@@ -37,12 +37,12 @@ For patterns you have judged harmless (for example an event type that a bench to
 
 ## Wizard mode (demo)
 
-An administrator can switch it on from the **Users** page. It plays an analyst for demonstrations: it creates cases from all open alerts (one catalog case for new event types, one per fleet-wide alert, one per event type seen on three or more vehicles, otherwise one per vehicle), assigns owners round-robin, works through each checklist one step at a time with notes built from the real event data, and closes most cases; about one in five stays open or waiting. Speeds are fast (2 s per step), normal (5 s) and slow (15 s); the panel shows the expected duration. A chip in the top bar shows while it runs, and the lists refresh by themselves.
+An administrator can press **Create demo cases now** on the **Users** page. It plays an analyst, at once: it creates cases from all open alerts (one catalog case for new event types, one per fleet-wide alert, one per event type seen on three or more vehicles, otherwise one per vehicle), assigns owners round-robin, works through each checklist with notes built from the real event data, and closes most cases; the rest end up waiting for input. It takes a fraction of a second.
 
-- Everything it creates is attributed to **Wizard (demo)**, marked "[Demo]" and written to the audit log (`wizard.start|stop|reset`, case actions by actor `wizard`). Events are never changed.
-- **Remove demo cases** deletes the cases it made and returns the alerts it handled to New. It is refused while the wizard runs.
-- Timestamps are real, nothing is back-dated. It carries on after a restart of the tool if it was running.
-- Do not use it on a database with real casework.
+- It leaves **no entries in the audit log**. The cases carry the name **Wizard (demo)** and "[Demo]" in their own activity log. Events are never changed.
+- **Remove demo cases** deletes the cases it made and returns the alerts it handled to New, also without audit entries.
+- Timestamps are real, so every step happens at the moment of the click.
+- Because it bypasses the audit log, do not use it on a database with real casework.
 
 ## Case report
 

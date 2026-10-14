@@ -186,6 +186,9 @@ def _digest(prev, ts, actor, via, action, target, detail):
 def log(actor, action, detail="", target="", via=None):
     """Record one action. Joins the caller's open transaction if there is one (so the entry commits or rolls back
     with the change it describes), otherwise commits on its own."""
+    cu = getattr(_cur, "user", None)
+    if cu and cu.get("via") == "wizard":
+        return  # demonstration mode leaves no audit entries
     c = db.conn()
     own = not c.in_transaction
     if own:

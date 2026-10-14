@@ -151,15 +151,9 @@ def api_wizard(h, p):
 def api_wizard_start(h, p):
     from . import wizard
     try:
-        return wizard.start(str(h.json_body().get("speed") or "normal"), h.user["username"])
+        return wizard.run(h.user["username"])
     except ValueError as e:
-        raise HttpError(400, str(e))
-
-
-@route("POST", "/api/wizard/stop", level=3)
-def api_wizard_stop(h, p):
-    from . import wizard
-    return wizard.stop(h.user["username"])
+        raise HttpError(409, str(e))
 
 
 @route("POST", "/api/wizard/reset", level=3)
@@ -884,8 +878,6 @@ class Handler(BaseHTTPRequestHandler):
 def serve(host="127.0.0.1", port=8765):
     db.init()
     db.recompute_ts_ok()
-    from . import wizard
-    wizard.resume()
     srv = ThreadingHTTPServer((host, port), Handler)
     srv.daemon_threads = True
     print(f"IDS SIEM running at http://{host}:{port}  (Ctrl+C to stop)")
