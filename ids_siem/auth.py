@@ -64,7 +64,11 @@ def set_current(user):
 
 def current_name():
     u = getattr(_cur, "user", None)
-    return (u["display_name"] or u["username"]) if u else db.get_settings().get("analyst", "analyst")
+    if not u:
+        return db.get_settings().get("analyst", "analyst")
+    name = u["display_name"] or u["username"]
+    # notes and comments written through an API token (scripts, AI agents) say so, so a reader can tell them from a person's
+    return f"{name} (API token #{u['token_id']})" if u.get("via") == "token" else name
 
 
 def _now():

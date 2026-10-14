@@ -86,6 +86,10 @@ python idssiem.py --sync --days 90  # first run: only the last 90 days
 
 `POST /api/ingest` still accepts JSON from any other source.
 
+## AI agent support
+
+`agent/mcp_server.py` lets an AI agent (Claude Code, the Claude desktop app, any MCP client) analyse alerts, events, vehicles and cases through the API with an API token, and write notes marked `[AI agent]`. It cannot change status, link or close anything. Setup, working rules and data-protection notes: `agent/README.md`.
+
 ## Sign-in, roles and API tokens
 
 The first start asks for the first administrator. After that everything needs a sign-in.
