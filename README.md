@@ -16,7 +16,7 @@ Data is stored in `data/siem.db` (SQLite). Set `IDS_SIEM_DB` to use another path
 |---|---|
 | Overview | Fleet figures, events over time (drag to select a period), top event types, vehicles and ECUs, open alerts |
 | Events | Search with `vin:` `ecu:` `sev:` `name:` `id:` `type:` `cat:` `desc:` `ts:invalid`, `-` to negate, plus facets, time range, detail drawer with analyst notes, CSV export of the current result |
-| Vehicles | Risk ranking, per-vehicle timeline, what each ECU reported, alerts |
+| Vehicles | Risk ranking, per-vehicle timeline, what each ECU reported, alerts, and the model year, body, engine, hand of drive and market decoded from the VIN |
 | Alerts | Triage queue: status (new, in progress, resolved, false positive), assignee, notes, history, bulk actions |
 | Cases | Create a case from one or more alerts (alert drawer or bulk action). Checklist (default tasks editable on the Data page), owner, due date, activity log, link or unlink alerts, close with a resolution (open alerts can be resolved with it), reopen. The dashboard shows status, overdue, ownerless, age, opened vs closed per week, time to close, severity, owners and resolutions |
 | Detections | Tune the six rules; alerts keep their triage state when rules run again |
@@ -25,6 +25,15 @@ Data is stored in `data/siem.db` (SQLite). Set `IDS_SIEM_DB` to use another path
 | Account | Change your password, create and revoke your own API tokens |
 | Users (admin) | Accounts and roles, sign-in and token rules, backend connection, all tokens |
 | Audit log (admin) | Who did what and when: search, filter by person, action group or date, export CSV, verify integrity |
+
+## VIN decoding
+
+Vehicle details come from the VIN itself, using the INEOS Grenadier VIN decoder (Corp-P2-ENG-0128 rev 001; EU/ROW serial and SVO, US/Canada MPV serial and SVO, US/Canada truck). The code is `ids_siem/vin.py`. The Overview has a "Fleet by" panel (model year, variant, body, engine, hand of drive, market) and clicking a bar lists those vehicles; the Vehicles page also accepts `year`, `variant`, `vehicle_type`, `body`, `engine`, `drive`, `market` and `plant` filters. Each vehicle page shows a Vehicle identity panel with the VIN split by field and a check-digit verdict.
+
+Things to know:
+- Codes the document does not list are shown as "Unknown (X)" and flagged, never guessed.
+- The EU/ROW and US/Canada tables overlap for the LEVIII petrol engine. A passenger car with engine C and restraint code A matches the US/Canada tables and is shown as US/Canada; trucks are identified by the WMI SH7.
+- The document only says "Calculation" (EU) or "Reserved" (US) for position 9. The tool checks it with the standard ISO 3779 algorithm, which holds for every VIN in the sample export. A mismatch is a hint of a typo or a spoofed VIN, not proof.
 
 ## Detections
 

@@ -56,7 +56,7 @@ h3 { font-size: 14px; margin: 16px 0 6px; }
 
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px; }
 .panel + .panel { margin-top: 14px; }
-.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 14px; margin-top: 14px; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr)); gap: 14px; margin-top: 14px; }
 .grid2 > .panel { margin: 0; }
 
 /* stat cards */
@@ -281,3 +281,11 @@ body.locked #auth { display: flex; min-height: 100vh; align-items: center; justi
   main { padding: 16px; overflow: visible; }
 }
 @media (prefers-reduced-motion: reduce) { #drawer { transition: none; } }
+
+/* decoded VIN */
+.bar.wide { grid-template-columns: minmax(0, 220px) minmax(0, 1fr) minmax(0, 260px); text-decoration: none; }
+.vinstrip { max-width: 100%; display: flex; flex-wrap: wrap; gap: 4px; margin: 14px 0 0; }
+.vinstrip span { display: flex; flex-direction: column; align-items: center; padding: 4px 8px; background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; }
+.vinstrip b { font-size: 16px; letter-spacing: .08em; }
+.vinstrip small { color: var(--ink2); font-size: 11px; }
+@media (max-width: 700px) { .bar.wide { grid-template-columns: minmax(0, 1fr); } }

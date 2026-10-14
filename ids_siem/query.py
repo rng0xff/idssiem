@@ -262,11 +262,50 @@ def summary(p):
     return out
 
 
+from . import vin as vinmod
+
 RISK_WEIGHT = {0: 0, 1: 1, 2: 3, 3: 10, 4: 25}
+
+
+def _vin_attr_filter(p, where, args):
+    """Restrict to VINs whose decoded attributes match, e.g. year=2024&engine=Diesel EU6d."""
+    want = {d: (p.get(d) or [""])[0] for d in vinmod.DIMENSIONS if (p.get(d) or [""])[0]}
+    if not want:
+        return where, args
+    ok = [r["vin"] for r in rows("SELECT DISTINCT vin FROM events WHERE vin IS NOT NULL AND vin <> ''")
+          if all(vinmod.dim_value(vinmod.decode(r["vin"]), d) == val for d, val in want.items())]
+    if not ok:
+        return where + " AND 0", args
+    return where + " AND e.vin IN (" + ",".join("?" * len(ok)) + ")", args + ok
+
+
+def fleet_profile():
+    """Vehicles, events and high or critical events grouped by each decoded VIN attribute."""
+    per = rows(f"SELECT e.vin AS vin, COUNT(*) AS events, SUM(c.sev_num>=3) AS high {BASE} "
+               f"WHERE e.vin IS NOT NULL AND e.vin <> '' GROUP BY e.vin")
+    out = {d: {} for d in vinmod.DIMENSIONS}
+    bad = []
+    for r in per:
+        info = vinmod.decode(r["vin"])
+        if not info["valid"] or info["unknown"]:
+            bad.append({"vin": r["vin"], "problem": info.get("problem") or "Unknown code: " + ", ".join(info["unknown"])})
+        for d in vinmod.DIMENSIONS:
+            g = out[d].setdefault(vinmod.dim_value(info, d), {"vehicles": 0, "events": 0, "high": 0})
+            g["vehicles"] += 1
+            g["events"] += r["events"] or 0
+            g["high"] += r["high"] or 0
+    dims = []
+    for d, name in vinmod.DIMENSIONS.items():
+        items = [{"value": k, **v} for k, v in out[d].items()]
+        items.sort(key=lambda x: (-x["vehicles"], x["value"]))
+        dims.append({"key": d, "name": name, "items": items})
+    return {"vehicles": len(per), "dimensions": dims, "check_failed": sum(
+        1 for r in per if (lambda i: i["valid"] and not i["check_ok"])(vinmod.decode(r["vin"]))), "undecodable": bad[:20]}
 
 
 def vehicles(p):
     where, args = build_where(p)
+    where, args = _vin_attr_filter(p, where, args)
     page = max(1, int((p.get("page") or ["1"])[0]))
     size = min(200, max(1, int((p.get("size") or ["50"])[0])))
     sort = (p.get("sort") or ["risk"])[0]
@@ -283,6 +322,7 @@ def vehicles(p):
     for v in data:
         v["max_severity"] = SEVERITIES[v["max_sev"] or 0]
         v["open_alerts"] = open_by_vin.get(v["vin"], 0)
+        v["info"] = vinmod.decode(v["vin"])
     return {"total": total, "page": page, "size": size, "vehicles": data}
 
 
@@ -295,4 +335,4 @@ def vehicle(vin):
         f"SELECT e.cat_id, c.short_name, c.severity, e.ecu_name, COUNT(*) n, MIN(CASE WHEN e.ts_ok=1 THEN e.ts END) first_ts, "
         f"MAX(CASE WHEN e.ts_ok=1 THEN e.ts END) last_ts {BASE} WHERE e.vin=? GROUP BY e.cat_id, e.ecu_name ORDER BY c.sev_num DESC, n DESC", [vin])
     alerts = rows("SELECT id, rule, title, severity, status, event_count, last_ts FROM alerts WHERE vin=? ORDER BY sev_num DESC, updated_at DESC", [vin])
-    return {"vin": vin, "summary": s, "by_event": by_event, "alerts": alerts}
+    return {"vin": vin, "info": vinmod.decode(vin), "summary": s, "by_event": by_event, "alerts": alerts}

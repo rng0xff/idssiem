@@ -90,6 +90,11 @@ def api_top(h, p):
     return query.top(p)
 
 
+@route("GET", "/api/fleet/profile")
+def api_fleet_profile(h, p):
+    return query.fleet_profile()
+
+
 @route("GET", "/api/vehicles")
 def api_vehicles(h, p):
     return query.vehicles(p)

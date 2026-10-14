@@ -107,6 +107,9 @@ ROUTES.overview = async function () {
     <div class="rangebar" id="range"><span id="rangetxt"></span><a class="btn primary small" id="rangego" href="#/events">Show these events</a><button class="btn small" id="rangeclear">Clear</button></div>
     <p class="muted" style="margin:8px 0 0">Drag across the chart to select a period and open its events. ${sum.no_ts ? `${fmtN(sum.no_ts)} events have no usable timestamp and are not on this chart.` : ''}</p>
   </div>
+  <div class="panel" style="margin-top:16px" id="fleetpanel"><div class="page-head" style="margin-bottom:8px"><h2 style="margin:0">Fleet by</h2><span class="spacer"></span>
+    <div class="seg" id="fdim">${VIN_DIMS.filter(d => !['plant', 'vehicle_type'].includes(d[0])).map(([k, n], i) => `<button data-d="${k}" class="${i ? '' : 'on'}">${n}</button>`).join('')}</div></div>
+    <div id="fleetbars" class="muted">Loading</div></div>
   <div class="grid2">
     <div class="panel"><h2>Most frequent event types</h2><div id="b-ev">${barsHtml(top_ev)}</div></div>
     <div class="panel"><h2>Noisiest vehicles</h2><div id="b-vin">${barsHtml(top_vin, { mono: true })}</div></div>
@@ -126,6 +129,18 @@ ROUTES.overview = async function () {
     $('#range').classList.remove('on');
   };
   await loadTl('severity');
+  api('/api/fleet/profile').then(fp => {
+    if (!$('#fleetbars')) return;
+    const show = k => {
+      const d = fp.dimensions.find(x => x.key === k);
+      const max = Math.max(...d.items.map(x => x.vehicles), 1);
+      $('#fleetbars').className = '';
+      $('#fleetbars').innerHTML = `<div class="bars">${d.items.map(x => `<a class="bar wide" href="${hashFor('vehicles', { [k]: x.value })}"><span class="lab">${esc(x.value)}</span><span class="track"><span class="fill" style="display:block;width:${(x.vehicles / max * 100).toFixed(1)}%"></span></span><span class="val">${fmtN(x.vehicles)} vehicles, ${fmtN(x.events)} events${x.high ? `, ${fmtN(x.high)} high` : ''}</span></a>`).join('')}</div>`
+        + (fp.check_failed ? `<p class="muted" style="margin:8px 0 0">${fp.check_failed} VINs fail the check digit.</p>` : '');
+    };
+    show('year');
+    $('#fdim').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; $$('#fdim button').forEach(x => x.classList.toggle('on', x === b)); show(b.dataset.d); });
+  }).catch(() => { const fb = $('#fleetbars'); if (fb) fb.textContent = 'Fleet breakdown not available.'; });
   $('#grp').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; $$('#grp button').forEach(x => x.classList.toggle('on', x === b)); loadTl(b.dataset.g); });
   $('#rangeclear').addEventListener('click', () => { $('#range').classList.remove('on'); const r = $('#selrect'); if (r) r.style.display = 'none'; });
   const barNav = (sel, make) => $(sel).addEventListener('click', e => { const b = e.target.closest('.bar'); if (b && b.dataset.key !== undefined) location.hash = make(b.dataset.key); });
@@ -242,21 +257,52 @@ ROUTES.vehicles = async function (_, P) {
   const raw = paramsObj(P);
   const page = Math.max(1, +raw.page || 1), sort = raw.sort || 'risk', dir = raw.dir || 'desc';
   const f = raw.q ? { q: 'vin:' + raw.q } : {};
-  const res = await api('/api/vehicles?' + qs({ ...f, page, size: 50, sort, dir }));
+  const attrs = {}; VIN_DIMS.forEach(([k]) => { if (raw[k]) attrs[k] = raw[k]; });
+  const res = await api('/api/vehicles?' + qs({ ...f, ...attrs, page, size: 50, sort, dir }));
   view.innerHTML = `<div class="page-head"><h1>Vehicles</h1><span class="sub">${fmtN(res.total)} vehicles</span></div>
   <form class="panel searchbar" id="vf"><input type="search" id="vq" value="${esc(raw.q || '')}" placeholder="Find a VIN or part of one" autocomplete="off" aria-label="Find a vehicle"><button class="btn primary" type="submit">Search</button></form>
-  <p class="muted" style="margin:10px 0">Risk adds up the severity of every event: low 1, medium 3, high 10, critical 25.</p>
-  ${res.vehicles.length ? `<div class="tablewrap"><table><thead><tr>${sortHeader('VIN', 'vin', sort, dir)}${sortHeader('Risk', 'risk', sort, dir, 'num')}${sortHeader('Worst severity', 'sev', sort, dir)}${sortHeader('Events', 'events', sort, dir, 'num')}${sortHeader('High or critical', 'high', sort, dir, 'num')}${sortHeader('ECUs', 'ecus', sort, dir, 'num')}<th class="num">Open alerts</th>${sortHeader('First seen', 'first', sort, dir)}${sortHeader('Last seen', 'last', sort, dir)}</tr></thead><tbody>
-    ${res.vehicles.map(v => `<tr class="row" data-vin="${esc(v.vin)}"><td class="mono">${esc(v.vin)}</td><td class="num">${fmtN(v.risk)}</td><td>${sevHtml(v.max_severity)}</td><td class="num">${fmtN(v.events)}</td><td class="num">${fmtN(v.high)}</td><td class="num">${v.ecus}</td><td class="num">${v.open_alerts || ''}</td><td class="nowrap">${fmtDay(v.first_seen) || '<span class="muted">none</span>'}</td><td class="nowrap">${fmtDay(v.last_seen) || '<span class="muted">none</span>'}</td></tr>`).join('')}
+  ${Object.keys(attrs).length ? `<div class="chips" style="margin:10px 0">${Object.entries(attrs).map(([k, v]) => `<span class="chip">${esc(VIN_DIMS.find(d => d[0] === k)[1])}: ${esc(v)}<button data-unset="${k}" title="Remove this filter" aria-label="Remove filter">&times;</button></span>`).join(' ')}</div>` : ''}
+  <p class="muted" style="margin:10px 0">Vehicle details are decoded from the VIN. Risk adds up the severity of every event: low 1, medium 3, high 10, critical 25.</p>
+  ${res.vehicles.length ? `<div class="tablewrap"><table><thead><tr>${sortHeader('VIN', 'vin', sort, dir)}<th>Vehicle</th>${sortHeader('Risk', 'risk', sort, dir, 'num')}${sortHeader('Worst severity', 'sev', sort, dir)}${sortHeader('Events', 'events', sort, dir, 'num')}${sortHeader('High or critical', 'high', sort, dir, 'num')}${sortHeader('ECUs', 'ecus', sort, dir, 'num')}<th class="num">Open alerts</th>${sortHeader('First seen', 'first', sort, dir)}${sortHeader('Last seen', 'last', sort, dir)}</tr></thead><tbody>
+    ${res.vehicles.map(v => `<tr class="row" data-vin="${esc(v.vin)}"><td class="mono">${esc(v.vin)}</td><td>${esc(v.info.label)}</td><td class="num">${fmtN(v.risk)}</td><td>${sevHtml(v.max_severity)}</td><td class="num">${fmtN(v.events)}</td><td class="num">${fmtN(v.high)}</td><td class="num">${v.ecus}</td><td class="num">${v.open_alerts || ''}</td><td class="nowrap">${fmtDay(v.first_seen) || '<span class="muted">none</span>'}</td><td class="nowrap">${fmtDay(v.last_seen) || '<span class="muted">none</span>'}</td></tr>`).join('')}
     </tbody></table></div>${pagerHtml(res.total, res.page, res.size)}` : '<div class="panel"><div class="empty"><b>No vehicles found</b></div></div>'}`;
-  const nav = patch => { const n = { q: raw.q, sort, dir, ...patch }; Object.keys(n).forEach(k => !n[k] && delete n[k]); go('vehicles', n); };
+  const nav = patch => { const n = { q: raw.q, sort, dir, ...attrs, ...patch }; Object.keys(n).forEach(k => !n[k] && delete n[k]); go('vehicles', n); };
   $('#vf').addEventListener('submit', e => { e.preventDefault(); nav({ q: $('#vq').value.trim(), page: undefined }); });
   view.onclick = e => {
     const pg = e.target.closest('[data-page]'); if (pg && !pg.disabled) return nav({ page: pg.dataset.page });
+    const un = e.target.closest('[data-unset]'); if (un) return nav({ [un.dataset.unset]: undefined, page: undefined });
     const so = e.target.closest('[data-sort]'); if (so) { const k = so.dataset.sort; return nav({ sort: k, dir: sort === k && dir === 'desc' ? 'asc' : 'desc', page: undefined }); }
     const row = e.target.closest('tr.row'); if (row) location.hash = hashFor('vehicle', {}, row.dataset.vin);
   };
 };
+
+const VIN_DIMS = [['year', 'Model year'], ['variant', 'Variant'], ['vehicle_type', 'Vehicle type'], ['body', 'Body'], ['engine', 'Engine'], ['drive', 'Hand of drive'], ['market', 'Market'], ['plant', 'Plant']];
+
+function vinPanel(i) {
+  if (!i.valid) return `<p class="muted" style="margin:0">${esc(i.problem)}. Decoding needs a 17-character VIN.</p>`;
+  const link = (k, val) => `<a href="${hashFor('vehicles', { [k]: String(val) })}" title="All vehicles with this value">${esc(val)}</a>`;
+  const row = (t, d) => d ? `<dt>${t}</dt><dd>${d}</dd>` : '';
+  const vin = i.vin;
+  return `<div class="grid2" style="margin:0">
+    <dl class="kv">
+      ${row('Model', esc(i.manufacturer) + ' ' + esc(i.model) + ' ' + esc(i.vehicle_type || ''))}
+      ${row('Variant', link('variant', i.variant || 'n/a'))}
+      ${row('Body', link('body', i.body))}
+      ${row('Engine', link('engine', i.engine))}
+      ${row('Hand of drive', i.drive ? link('drive', i.drive) : '')}
+      ${row('Market', link('market', i.market))}
+    </dl>
+    <dl class="kv">
+      ${row('Model year', i.year ? link('year', i.year) : 'Unknown')}
+      ${row('Built in', link('plant', i.plant))}
+      ${row('Serial number', `<span class="mono">${esc(i.serial)}</span>`)}
+      ${i.gvwr ? row('Weight and restraints', esc(i.gvwr)) : ''}
+      ${row('Check digit', i.check_ok ? `<span class="mono">${esc(i.check_digit)}</span> is correct` : `<b>Wrong</b>: the VIN has <span class="mono">${esc(i.check_digit)}</span>, calculation gives <span class="mono">${esc(i.check_expected)}</span>. Possible typo or a spoofed VIN.`)}
+      ${i.unknown.length ? row('Not in the decoder', esc(i.unknown.join(', ')) + '. Check for a newer decoder revision.') : ''}
+    </dl></div>
+    <p class="vinstrip mono" aria-label="VIN split by field">${[['WMI', vin.slice(0, 3)], ['Make and line', vin.slice(3, 5)], ['Body', vin[5]], ['Engine', vin[6]], [i.market === 'US/Canada' ? 'GVWR' : 'Drive', vin[7]], ['Check', vin[8]], ['Year', vin[9]], ['Plant', vin[10]], ['Serial', vin.slice(11)]].map(([l, c]) => `<span><b>${esc(c)}</b><small>${l}</small></span>`).join('')}</p>
+    <p class="muted" style="margin:6px 0 0">Decoded with INEOS Grenadier VIN decoder Corp-P2-ENG-0128 rev 001. The EU/ROW and US/Canada tables overlap for the LEVIII petrol engine, so a passenger car with engine C and restraint code A is shown as US/Canada.</p>`;
+}
 
 ROUTES.vehicle = async function (vin) {
   const [v, t] = await Promise.all([api('/api/vehicles/' + encodeURIComponent(vin)), api('/api/timeline?' + qs({ vin, group: 'severity', buckets: 60 }))]);
@@ -270,6 +316,7 @@ ROUTES.vehicle = async function (vin) {
     <div class="fig"><div class="n" style="font-size:18px">${fmtDay(s.last_ts) || 'none'}</div><div class="l">Last event</div><div class="s">${s.last_ts ? ago(s.last_ts) : ''}</div></div>
     <a class="fig" href="${hashFor('events', { vin, ts: 'invalid' })}"><div class="n">${fmtN(s.no_ts)}</div><div class="l">Without usable time</div></a>
   </div>
+  <div class="panel" style="margin-top:16px"><h2>Vehicle identity</h2>${vinPanel(v.info)}</div>
   <div class="panel" style="margin-top:16px"><h2>Timeline</h2><div id="tl"></div></div>
   <div class="grid2">
     <div class="panel"><h2>What this vehicle reported</h2><div class="tablewrap"><table><thead><tr><th>Event</th><th>ECU</th><th class="num">Count</th><th>Last seen</th></tr></thead><tbody>
