@@ -29,9 +29,11 @@ def _who():
     return auth.current_name()
 
 
-def _log(c, case_id, kind, body, now, author=None):
+def _log(c, case_id, kind, body, now, author=None, action=None):
     c.execute("INSERT INTO case_log(case_id, author, kind, body, created_at) VALUES(?,?,?,?,?)",
               (case_id, author or ("system" if kind == "system" else _who()), kind, body, now))
+    # the same event goes to the audit log, inside the same transaction
+    auth.log(auth.current_actor(), action or ("case.comment" if kind == "comment" else "case.update"), body[:300] if kind != "comment" else f"note added ({len(body)} characters)", target=f"case:{case_id}")
 
 
 def _today():
@@ -76,7 +78,7 @@ def _link_alerts(c, case_id, alert_ids, now):
             c.execute("UPDATE alerts SET status='in_progress', updated_at=? WHERE id=?", (now, aid))
             c.execute("INSERT INTO alert_comments(alert_id, author, body, created_at) VALUES(?,?,?,?)",
                       (aid, "system", f"{who} changed status: new → in_progress (case #{case_id})", now))
-        _log(c, case_id, "system", f"Alert #{aid} linked: {a['title']}", now, author=who)
+        _log(c, case_id, "system", f"Alert #{aid} linked: {a['title']}", now, author=who, action="case.link")
 
 
 def _check_linkable(c, alert_ids):
@@ -128,7 +130,7 @@ def create_case(body):
             tasks = db.get_settings().get("case_tasks", [])
         for i, t in enumerate(str(x).strip()[:200] for x in tasks if str(x).strip()):
             c.execute("INSERT INTO case_tasks(case_id, title, position) VALUES(?,?,?)", (cid, t, i))
-        _log(c, cid, "system", f"Case created by {who}", now, author=who)
+        _log(c, cid, "system", f"Case created by {who}: {title}", now, author=who, action="case.create")
         _link_alerts(c, cid, ids, now)
         c.commit()
     except Exception:
@@ -198,7 +200,7 @@ def close_case(cid, body):
         who = _who()
         c.execute("UPDATE cases SET status='closed', resolution=?, findings=?, closed_at=?, updated_at=? WHERE id=?",
                   (res, str(body.get("findings") or "")[:20000], now, now, cid))
-        _log(c, cid, "system", f"{who} closed the case: {RESOLUTIONS[res]}", now, author=who)
+        _log(c, cid, "system", f"{who} closed the case: {RESOLUTIONS[res]}", now, author=who, action="case.close")
         n = 0
         if body.get("resolve_alerts", True):
             new_status = "false_positive" if res == "false_positive" else "resolved"
@@ -209,7 +211,7 @@ def close_case(cid, body):
                           (a["id"], "system", f"{who} closed case #{cid} ({RESOLUTIONS[res]}): {a['status']} → {new_status}", now))
                 n += 1
             if n:
-                _log(c, cid, "system", f"{n} open alert(s) set to {new_status.replace('_', ' ')}", now)
+                _log(c, cid, "system", f"{n} open alert(s) set to {new_status.replace('_', ' ')}", now, action="case.close")
         c.commit()
     except Exception:
         c.rollback()
@@ -225,7 +227,7 @@ def reopen_case(cid):
         if cur["status"] != "closed":
             raise ValueError("the case is not closed")
         c.execute("UPDATE cases SET status='investigating', resolution='', closed_at=NULL, updated_at=? WHERE id=?", (now, cid))
-        _log(c, cid, "system", f"{_who()} reopened the case (it was closed as: {RESOLUTIONS.get(cur['resolution'], 'unknown')})", now)
+        _log(c, cid, "system", f"{_who()} reopened the case (it was closed as: {RESOLUTIONS.get(cur['resolution'], 'unknown')})", now, action="case.reopen")
         c.commit()
     except Exception:
         c.rollback()
@@ -235,7 +237,8 @@ def reopen_case(cid):
 
 def delete_case(cid):
     c = db.conn()
-    _case_or_404(c, cid)
+    row = _case_or_404(c, cid)
+    auth.log(auth.current_actor(), "case.delete", f"deleted '{row['title']}' (status {row['status']})", target=f"case:{cid}")
     for t in ("case_tasks", "case_log", "case_alerts"):
         c.execute(f"DELETE FROM {t} WHERE case_id=?", (cid,))
     c.execute("DELETE FROM cases WHERE id=?", (cid,))
@@ -266,7 +269,7 @@ def add_task(cid, body):
     _case_or_404(c, cid)
     pos = c.execute("SELECT COALESCE(MAX(position), -1) + 1 FROM case_tasks WHERE case_id=?", (cid,)).fetchone()[0]
     c.execute("INSERT INTO case_tasks(case_id, title, position) VALUES(?,?,?)", (cid, t, pos))
-    _log(c, cid, "system", f"{_who()} added the task: {t}", now)
+    _log(c, cid, "system", f"{_who()} added the task: {t}", now, action="case.task")
     c.execute("UPDATE cases SET updated_at=? WHERE id=?", (now, cid))
     c.commit()
     return get_case(cid)
@@ -283,10 +286,10 @@ def update_task(cid, tid, body):
     if "done" in body and bool(body["done"]) != bool(t["done"]):
         if body["done"]:
             c.execute("UPDATE case_tasks SET done=1, done_at=?, done_by=? WHERE id=?", (now, who, tid))
-            _log(c, cid, "system", f"{who} completed the task: {t['title']}", now)
+            _log(c, cid, "system", f"{who} completed the task: {t['title']}", now, action="case.task")
         else:
             c.execute("UPDATE case_tasks SET done=0, done_at=NULL, done_by='' WHERE id=?", (tid,))
-            _log(c, cid, "system", f"{who} reopened the task: {t['title']}", now)
+            _log(c, cid, "system", f"{who} reopened the task: {t['title']}", now, action="case.task")
     if "title" in body and str(body["title"]).strip():
         c.execute("UPDATE case_tasks SET title=? WHERE id=?", (str(body["title"]).strip()[:200], tid))
     c.execute("UPDATE cases SET updated_at=? WHERE id=?", (now, cid))
@@ -302,7 +305,7 @@ def delete_task(cid, tid):
     if not t:
         raise NotFound("task not found")
     c.execute("DELETE FROM case_tasks WHERE id=?", (tid,))
-    _log(c, cid, "system", f"{_who()} removed the task: {t['title']}", now)
+    _log(c, cid, "system", f"{_who()} removed the task: {t['title']}", now, action="case.task")
     c.commit()
     return get_case(cid)
 
@@ -336,7 +339,7 @@ def unlink_alert(cid, aid):
     c.execute("DELETE FROM case_alerts WHERE case_id=? AND alert_id=?", (cid, aid))
     c.execute("INSERT INTO alert_comments(alert_id, author, body, created_at) VALUES(?,?,?,?)",
               (aid, "system", f"{_who()} removed this alert from case #{cid}", now))
-    _log(c, cid, "system", f"Alert #{aid} removed from the case", now, author=_who())
+    _log(c, cid, "system", f"Alert #{aid} removed from the case", now, author=_who(), action="case.unlink")
     c.execute("UPDATE cases SET updated_at=? WHERE id=?", (now, cid))
     c.commit()
     return get_case(cid)

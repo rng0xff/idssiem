@@ -256,6 +256,8 @@ pre { background: var(--panel2); border: 1px solid var(--line); border-radius: 6
 
 
 /* sign-in and accounts */
+.aud-bad { color: var(--err); font-weight: 600; }
+.note.ok { background: var(--ok-soft); border-color: var(--ok); }
 [hidden] { display: none !important; }
 body.locked .app { display: none; }
 #auth { display: none; }

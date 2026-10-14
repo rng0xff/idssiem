@@ -117,7 +117,7 @@ ROUTES.account = async function () {
 /* ---------------------------------------------------------------- administration */
 ROUTES.users = async function () {
   if (ME.role !== 'admin') { view.innerHTML = '<div class="panel"><h2>Administrators only</h2><p>Your role does not include user management.</p></div>'; return; }
-  const [ul, pol, be, alltok, audit] = await Promise.all([api('/api/users'), api('/api/auth/policy'), api('/api/backend'), api('/api/tokens?all=1'), api('/api/audit')]);
+  const [ul, pol, be, alltok] = await Promise.all([api('/api/users'), api('/api/auth/policy'), api('/api/backend'), api('/api/tokens?all=1')]);
   const users = ul.users;
   view.innerHTML = `<div class="page-head"><h1>Users</h1><span class="spacer"></span><button class="btn primary" id="u-new">New user</button></div>
   <div class="panel"><h2>Accounts</h2><div class="tablewrap"><table><thead><tr><th>Username</th><th>Name</th><th>Role</th><th>Status</th><th class="num">Active tokens</th><th>Last sign-in</th></tr></thead><tbody>
@@ -142,8 +142,7 @@ ROUTES.users = async function () {
     <p style="margin:12px 0 0"><button class="btn" id="be-save">Save connection</button></p></div>
   <div class="panel"><h2>All API tokens</h2>${alltok.length ? `<div class="tablewrap"><table><thead><tr><th>Owner</th><th>Name</th><th>Token</th><th>Permission</th><th>Expires</th><th>Last used</th><th>State</th><th></th></tr></thead><tbody>
     ${alltok.map(t => `<tr><td>${esc(t.owner)}</td><td>${esc(t.name)}</td><td class="mono">ids_…${esc(t.preview)}</td><td>${esc(t.perm)}</td><td class="nowrap">${fmtExp(t.expires_at)}</td><td class="nowrap">${t.last_used ? fmtDay(t.last_used) : '<span class="muted">never</span>'}</td><td>${stateHtml(t.state)}</td><td>${t.state === 'active' ? `<button class="btn small danger" data-revoke="${t.id}">Revoke</button>` : ''}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">No tokens yet.</div>'}</div>
-  <div class="panel"><h2>Audit log</h2><div class="tablewrap" style="max-height:340px;overflow:auto"><table><thead><tr><th>When (UTC)</th><th>Who</th><th>What</th><th>Detail</th></tr></thead><tbody>
-    ${audit.slice(0, 100).map(a => `<tr><td class="nowrap mono">${esc(fmtTs(a.ts))}</td><td>${esc(a.actor)}</td><td>${esc(a.action)}</td><td class="muted">${esc(a.detail)}</td></tr>`).join('')}</tbody></table></div></div>`;
+  <p class="muted">Everything done in the application is recorded in the <a href="#/audit">audit log</a>.</p>`;
 
   $('#u-new').addEventListener('click', () => userForm(null));
   $('#pl-save').addEventListener('click', async () => {
@@ -190,3 +189,48 @@ function userForm(u) {
 async function startUserNames() {
   try { $('#userlist').innerHTML = (await api('/api/users/names')).map(n => `<option value="${esc(n)}">`).join(''); } catch (_) { /* ignore */ }
 }
+
+/* ---------------------------------------------------------------- audit log */
+const AUDIT_GROUPS = [['alert.', 'Alerts'], ['case.', 'Cases'], ['data.', 'Data imports, exports and deletion'], ['user.', 'Users'], ['token.', 'API tokens'], ['login', 'Sign-ins'], ['access.', 'Denied requests']];
+const auditBad = a => /^(access\.denied|login\.failed|data\.reset|data\.import\.delete|case\.delete|user\.delete)/.test(a);
+function auditTarget(t) {
+  const m = /^(case|vehicle):(.+)$/.exec(t || '');
+  return m ? `<a href="#/${m[1] === 'case' ? 'cases' : 'vehicles'}/${encodeURIComponent(m[2])}">${esc(t)}</a>` : esc(t);
+}
+ROUTES.audit = async function (_arg, P) {
+  if (ME.role !== 'admin') { view.innerHTML = '<div class="panel"><h2>Administrators only</h2><p>Your role does not include the audit log.</p></div>'; return; }
+  const raw = paramsObj(P), page = +raw.page || 1;
+  const f = { q: raw.q, actor: raw.actor, action: raw.action, from: raw.from, to: raw.to };
+  const res = await api('/api/audit?' + qs({ ...f, page, size: 100 }));
+  const exact = res.actions;
+  view.innerHTML = `<div class="page-head"><h1>Audit log</h1><span class="spacer"></span>
+      <button class="btn" id="au-verify">Verify integrity</button> <a class="btn" href="/api/audit/export.csv?${qs(f)}" id="au-export">Export CSV</a></div>
+    <div id="au-result"></div>
+    <div class="searchbar" style="margin-bottom:12px">
+      <input type="search" id="au-q" style="flex:1 1 220px;min-width:0" placeholder="Search who, what, target or detail" value="${esc(raw.q || '')}" aria-label="Search">
+      <select id="au-actor" aria-label="Person"><option value="">Everyone</option>${res.actors.map(a => `<option ${raw.actor === a ? 'selected' : ''}>${esc(a)}</option>`).join('')}</select>
+      <select id="au-action" aria-label="Action"><option value="">Any action</option>
+        <optgroup label="Groups">${AUDIT_GROUPS.map(([k, l]) => `<option value="${k}" ${raw.action === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</optgroup>
+        <optgroup label="Single actions">${exact.map(a => `<option ${raw.action === a ? 'selected' : ''}>${esc(a)}</option>`).join('')}</optgroup></select>
+      <label class="muted">From <input type="date" id="au-from" value="${esc(raw.from || '')}"></label>
+      <label class="muted">To <input type="date" id="au-to" value="${esc(raw.to || '')}"></label></div>
+    ${res.rows.length ? `<div class="tablewrap"><table><thead><tr><th>When (UTC)</th><th>Who</th><th>Via</th><th>Action</th><th>Target</th><th>Detail</th></tr></thead><tbody>
+      ${res.rows.map(r => `<tr><td class="nowrap mono">${esc(fmtTs(r.ts))}</td><td>${esc(r.actor)}</td><td class="muted">${esc(r.via)}</td><td class="${auditBad(r.action) ? 'aud-bad' : ''}">${esc(r.action)}</td><td class="mono">${auditTarget(r.target)}</td><td>${esc(r.detail)}</td></tr>`).join('')}</tbody></table></div>${pagerHtml(res.total, res.page, res.size)}`
+      : '<div class="empty">No entries match.</div>'}
+    <p class="muted">Entries cannot be edited or deleted in the application, not even by "Delete all data". Each entry is chained to the one before it, so "Verify integrity" shows where the log was changed in the database file.</p>`;
+  const nav = patch => { const n = { ...f, ...patch }; Object.keys(n).forEach(k => !n[k] && delete n[k]); go('audit', n); };
+  $('#au-q').addEventListener('change', e => nav({ q: e.target.value.trim(), page: undefined }));
+  $('#au-actor').addEventListener('change', e => nav({ actor: e.target.value, page: undefined }));
+  $('#au-action').addEventListener('change', e => nav({ action: e.target.value, page: undefined }));
+  $('#au-from').addEventListener('change', e => nav({ from: e.target.value, page: undefined }));
+  $('#au-to').addEventListener('change', e => nav({ to: e.target.value, page: undefined }));
+  $('#au-verify').addEventListener('click', async () => {
+    try {
+      const v = await api('/api/audit/verify');
+      $('#au-result').innerHTML = v.ok
+        ? `<div class="note ok" style="margin-bottom:12px"><b>The chain is intact.</b> ${fmtN(v.checked)} entries checked${v.legacy ? `, ${fmtN(v.legacy)} older entries from before chaining are not covered` : ''}.<br><span class="muted">Latest hash <code>${esc(v.head.slice(0, 16))}…</code>. Note it down somewhere else if you want to detect later truncation.</span></div>`
+        : `<div class="note err" style="margin-bottom:12px"><b>The chain is broken at entry ${v.broken_at}.</b> That entry or one before it was changed or removed in the database file. ${fmtN(v.checked)} entries before it are fine.</div>`;
+    } catch (e) { toast(e.message, true); }
+  });
+  view.onclick = e => { const b = e.target.closest('[data-page]'); if (b && !b.disabled) nav({ page: +b.dataset.page > 1 ? b.dataset.page : undefined }); };
+};

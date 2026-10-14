@@ -23,7 +23,8 @@ Data is stored in `data/siem.db` (SQLite). Set `IDS_SIEM_DB` to use another path
 | Event catalog | Severity and category per event type. Defaults are a starting point, adjust to your TARA |
 | Data | Import (CSV, XLSX, JSON), import history, data quality, settings |
 | Account | Change your password, create and revoke your own API tokens |
-| Users (admin) | Accounts and roles, sign-in and token rules, backend connection, all tokens, audit log |
+| Users (admin) | Accounts and roles, sign-in and token rules, backend connection, all tokens |
+| Audit log (admin) | Who did what and when: search, filter by person, action group or date, export CSV, verify integrity |
 
 ## Detections
 
@@ -56,6 +57,17 @@ curl -H "Authorization: Bearer ids_..." http://127.0.0.1:8765/api/summary
 ```
 
 Notes and cases are attributed to the signed-in user. Locked out? Run `python run.py --reset-password USER` on the machine.
+
+## Audit log
+
+Every state-changing action is recorded with time, person, channel (session or API token), action, target and a short detail:
+
+- sign-ins, failed sign-ins (including unknown usernames), sign-outs, password changes, denied requests
+- users and API tokens, rule and backend changes, settings
+- alert status, assignee and notes; case creation, changes, tasks, notes, links, close, reopen, delete
+- event notes, event catalog changes, detection runs, imports, JSON ingests, import removal, deleting all data, CSV exports
+
+Note text is not copied into the log, only that a note was added. Entries cannot be changed or deleted in the application, and "Delete all data" leaves them alone. Each entry carries a hash of its content and the previous entry, and **Verify integrity** on the Audit log page reports where the chain breaks. That detects edits and deleted entries in the middle of the log. Someone who can write the database file could recompute the chain, and cutting off the newest entries goes unnoticed unless you noted the latest hash, so treat it as evidence, not a vault. Only administrators can read it.
 
 ## Security
 

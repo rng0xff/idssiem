@@ -102,8 +102,10 @@ CREATE TABLE IF NOT EXISTS api_tokens(
 );
 CREATE INDEX IF NOT EXISTS ix_tok_user ON api_tokens(user_id);
 CREATE TABLE IF NOT EXISTS audit(
-  id INTEGER PRIMARY KEY, ts INTEGER, actor TEXT, action TEXT, detail TEXT
+  id INTEGER PRIMARY KEY, ts INTEGER, actor TEXT, action TEXT, detail TEXT,
+  via TEXT DEFAULT '', target TEXT DEFAULT '', hash TEXT
 );
+CREATE INDEX IF NOT EXISTS ix_audit_ts ON audit(ts);
 """
 
 DEFAULT_SETTINGS = {
@@ -150,6 +152,10 @@ def conn():
 def init():
     c = conn()
     c.executescript(SCHEMA)
+    have = {r["name"] for r in c.execute("PRAGMA table_info(audit)")}
+    for col, ddl in (("via", "TEXT DEFAULT ''"), ("target", "TEXT DEFAULT ''"), ("hash", "TEXT")):
+        if col not in have:  # database created by an earlier version
+            c.execute(f"ALTER TABLE audit ADD COLUMN {col} {ddl}")
     c.commit()
 
 

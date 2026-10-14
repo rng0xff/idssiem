@@ -156,15 +156,103 @@ def put_backend(new):
 
 
 # ------------------------------------------------------------------ audit
-def log(actor, action, detail=""):
+# Append-only. Every row carries a hash over its own content and the previous row's hash, so an edited or
+# removed row breaks the chain and verify_audit() reports where. This catches mistakes and casual edits; someone
+# with write access to the database file could recompute the chain, so it is evidence, not a vault.
+def current_actor():
+    u = getattr(_cur, "user", None)
+    return u["username"] if u else "system"
+
+
+def _via():
+    u = getattr(_cur, "user", None)
+    if not u:
+        return ""
+    return f"token #{u['token_id']}" if u["via"] == "token" else "session"
+
+
+def _digest(prev, ts, actor, via, action, target, detail):
+    return hashlib.sha256((prev + "|" + json.dumps([ts, actor, via, action, target, detail], ensure_ascii=False)).encode()).hexdigest()
+
+
+def log(actor, action, detail="", target="", via=None):
+    """Record one action. Joins the caller's open transaction if there is one (so the entry commits or rolls back
+    with the change it describes), otherwise commits on its own."""
     c = db.conn()
-    c.execute("INSERT INTO audit(ts, actor, action, detail) VALUES(?,?,?,?)", (_now(), actor, action, str(detail)[:300]))
-    c.execute("DELETE FROM audit WHERE id < (SELECT MAX(id) FROM audit) - 5000")
-    c.commit()
+    own = not c.in_transaction
+    if own:
+        c.execute("BEGIN IMMEDIATE")
+    try:
+        prev = c.execute("SELECT hash FROM audit WHERE hash IS NOT NULL ORDER BY id DESC LIMIT 1").fetchone()
+        prev = prev[0] if prev else ""
+        ts, actor, action = _now(), str(actor)[:60], str(action)[:40]
+        target, detail = str(target)[:80], str(detail)[:400]
+        via = _via() if via is None else via
+        c.execute("INSERT INTO audit(ts, actor, via, action, target, detail, hash) VALUES(?,?,?,?,?,?,?)",
+                  (ts, actor, via, action, target, detail, _digest(prev, ts, actor, via, action, target, detail)))
+        if own:
+            c.commit()
+    except Exception:
+        if own:
+            c.rollback()
+        raise
 
 
-def audit_list(limit=200):
-    return [dict(r) for r in db.conn().execute("SELECT * FROM audit ORDER BY id DESC LIMIT ?", (limit,))]
+def _audit_where(p):
+    where, args = [], []
+    one = lambda k: (p.get(k) or [""])[0].strip()
+    if one("q"):
+        like = "%" + one("q").replace("%", "").replace("_", "") + "%"
+        where.append("(actor LIKE ? OR action LIKE ? OR target LIKE ? OR detail LIKE ?)")
+        args += [like] * 4
+    if one("actor"):
+        where.append("actor=?"); args.append(one("actor"))
+    if one("action"):
+        a = one("action")
+        if a.endswith("."):
+            where.append("action LIKE ?"); args.append(a + "%")
+        else:
+            where.append("action=?"); args.append(a)
+    import datetime
+    for k, op, add in (("from", ">=", 0), ("to", "<", 86400000)):
+        if one(k):
+            try:
+                d = datetime.datetime.strptime(one(k), "%Y-%m-%d").replace(tzinfo=datetime.timezone.utc)
+            except ValueError:
+                raise ValueError(f"'{k}' must be a date like 2026-10-14")
+            where.append(f"ts {op} ?"); args.append(int(d.timestamp() * 1000) + add)
+    return (" WHERE " + " AND ".join(where)) if where else "", args
+
+
+def audit_list(p):
+    c = db.conn()
+    w, args = _audit_where(p)
+    page = max(1, int((p.get("page") or ["1"])[0] or 1))
+    size = min(500, max(10, int((p.get("size") or ["100"])[0] or 100)))
+    total = c.execute("SELECT COUNT(*) FROM audit" + w, args).fetchone()[0]
+    rows = [dict(r) for r in c.execute(f"SELECT id, ts, actor, via, action, target, detail FROM audit{w} ORDER BY id DESC LIMIT ? OFFSET ?", (*args, size, (page - 1) * size))]
+    return {"total": total, "page": page, "size": size, "rows": rows,
+            "actors": [r[0] for r in c.execute("SELECT DISTINCT actor FROM audit ORDER BY actor COLLATE NOCASE")],
+            "actions": [r[0] for r in c.execute("SELECT DISTINCT action FROM audit ORDER BY action")]}
+
+
+def audit_iter(p):
+    w, args = _audit_where(p)
+    return db.conn().execute(f"SELECT id, ts, actor, via, action, target, detail FROM audit{w} ORDER BY id DESC", args)
+
+
+def verify_audit():
+    c = db.conn()
+    prev, checked, legacy = "", 0, 0
+    for r in c.execute("SELECT * FROM audit ORDER BY id"):
+        if r["hash"] is None:
+            legacy += 1
+            continue
+        if _digest(prev, r["ts"], r["actor"], r["via"] or "", r["action"], r["target"] or "", r["detail"] or "") != r["hash"]:
+            return {"ok": False, "checked": checked, "legacy": legacy, "broken_at": r["id"], "head": prev}
+        prev = r["hash"]
+        checked += 1
+    return {"ok": True, "checked": checked, "legacy": legacy, "broken_at": None, "head": prev}
 
 
 # ------------------------------------------------------------------ users
@@ -211,7 +299,7 @@ def create_user(body, actor="system"):
     cur = c.execute("INSERT INTO users(username, display_name, role, pw_hash, active, created_at) VALUES(?,?,?,?,1,?)",
                     (f["username"], f["display_name"], f["role"], hash_pw(body["password"]), _now()))
     c.commit()
-    log(actor, "user.create", f"{f['username']} as {f['role']}")
+    log(actor, "user.create", f"{f['username']} as {f['role']}", target=f"user:{cur.lastrowid}")
     return _public(c.execute("SELECT * FROM users WHERE id=?", (cur.lastrowid,)).fetchone())
 
 
@@ -254,7 +342,7 @@ def update_user(uid, body, actor):
         changes.append("active" if new_active else "deactivated")
     if body.get("password"):
         changes.append("password reset")
-    log(actor, "user.update", f"{cur['username']}: {', '.join(changes) or 'no change'}")
+    log(actor, "user.update", f"{cur['username']}: {', '.join(changes) or 'no change'}", target=f"user:{uid}")
     return _public(_get(uid))
 
 
@@ -269,7 +357,7 @@ def delete_user(uid, actor_user):
     c.execute("DELETE FROM api_tokens WHERE user_id=?", (uid,))
     c.execute("DELETE FROM users WHERE id=?", (uid,))
     c.commit()
-    log(actor_user["username"], "user.delete", cur["username"])
+    log(actor_user["username"], "user.delete", cur["username"], target=f"user:{uid}")
     return {"ok": True}
 
 
@@ -297,7 +385,7 @@ def change_password(user, body, keep_session=None):
     c.execute("UPDATE users SET pw_hash=? WHERE id=?", (hash_pw(body["new_password"]), user["id"]))
     c.execute("DELETE FROM sessions WHERE user_id=? AND token_hash<>?", (user["id"], keep_session or ""))
     c.commit()
-    log(r["username"], "password.change", "")
+    log(r["username"], "password.change", "", target=f"user:{r['id']}")
     return {"ok": True}
 
 
@@ -310,7 +398,9 @@ def setup_first_admin(body):
     if user_count():
         raise AuthError(403, "Setup is already done")
     body = dict(body, role="admin")
-    return create_user(body, actor="setup")
+    u = create_user(body, actor="setup")
+    log("setup", "setup.admin", f"first administrator {u['username']}", target=f"user:{u['id']}")
+    return u
 
 
 def login(username, password):
@@ -326,12 +416,14 @@ def login(username, password):
         verify_pw(str(password), _DUMMY)
     ok = bool(r) and r["active"] and verify_pw(str(password), r["pw_hash"])
     if not ok:
+        if not r:
+            log(str(username).strip()[:60] or "(empty)", "login.failed", "unknown user", via="")
         if r:
             failed = (r["failed"] or 0) + 1
             lock = now + LOCK_MINUTES * 60000 if failed >= LOCK_AFTER else 0
             c.execute("UPDATE users SET failed=?, locked_until=? WHERE id=?", (0 if lock else failed, lock, r["id"]))
             c.commit()
-            log(r["username"], "login.failed", "locked" if lock else "")
+            log(r["username"], "login.failed", "account locked for 5 minutes" if lock else ("account inactive" if not r["active"] else "wrong password"), via="")
         raise AuthError(401, "Wrong username or password")
     c.execute("UPDATE users SET failed=0, locked_until=0, last_login=? WHERE id=?", (now, r["id"]))
     c.execute("DELETE FROM sessions WHERE expires_at<?", (now,))
@@ -340,7 +432,7 @@ def login(username, password):
     c.execute("INSERT INTO sessions(token_hash, user_id, created_at, last_seen, expires_at) VALUES(?,?,?,?,?)",
               (_sha(raw), r["id"], now, now, now + hours * 3600000))
     c.commit()
-    log(r["username"], "login", "")
+    log(r["username"], "login", "", via="")
     return raw, hours * 3600
 
 
@@ -433,7 +525,7 @@ def create_token(user, body):
     cur = c.execute("INSERT INTO api_tokens(user_id, name, token_hash, preview, perm, created_at, expires_at) VALUES(?,?,?,?,?,?,?)",
                     (user["id"], name, _sha(raw), raw[-4:], perm, now, now + days * 86400000 if days else None))
     c.commit()
-    log(user["username"], "token.create", f"{name} ({perm}, {days or 'no'} days)")
+    log(user["username"], "token.create", f"{name} ({perm}, {days or 'no'} days)", target=f"token:{cur.lastrowid}")
     return {**_token_row(c.execute("SELECT * FROM api_tokens WHERE id=?", (cur.lastrowid,)).fetchone()), "token": raw}
 
 
@@ -452,5 +544,5 @@ def revoke_token(user, tid):
         raise AuthError(404, "token not found")
     c.execute("UPDATE api_tokens SET revoked_at=? WHERE id=? AND revoked_at IS NULL", (_now(), tid))
     c.commit()
-    log(user["username"], "token.revoke", f"{t['name']} of {t['owner']}")
+    log(user["username"], "token.revoke", f"{t['name']} of {t['owner']}", target=f"token:{tid}")
     return {"ok": True}

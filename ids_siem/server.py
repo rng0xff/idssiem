@@ -176,6 +176,7 @@ def api_auth_login(h, p):
 
 @route("POST", "/api/auth/logout", session_only=True, level=1)
 def api_auth_logout(h, p):
+    auth.log(h.user["username"], "logout", "")
     auth.logout(h.cookie_value())
     h.set_cookie = ("", 0)
     return {"ok": True}
@@ -212,7 +213,26 @@ def api_backend_put(h, p):
 
 @route("GET", "/api/audit", level=3)
 def api_audit(h, p):
-    return auth.audit_list()
+    return _auth_call(auth.audit_list, p)
+
+
+@route("GET", "/api/audit/verify", level=3)
+def api_audit_verify(h, p):
+    return auth.verify_audit()
+
+
+@route("GET", "/api/audit/export.csv", level=3)
+def api_audit_export(h, p):
+    import datetime
+    buf = io.StringIO()
+    w = csv.writer(buf, delimiter=";")
+    w.writerow(["id", "time_utc", "actor", "via", "action", "target", "detail"])
+    for r in auth.audit_iter(p):
+        w.writerow([r["id"], datetime.datetime.fromtimestamp(r["ts"] / 1000, datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+                    r["actor"], r["via"], r["action"], r["target"], r["detail"]])
+    auth.log(auth.current_actor(), "audit.export", "audit log exported as CSV")
+    return ("raw", "text/csv; charset=utf-8", buf.getvalue().encode("utf-8-sig"),
+            {"Content-Disposition": 'attachment; filename="ids-audit-log.csv"'})
 
 
 @route("GET", "/api/users/names", level=1)
@@ -471,6 +491,45 @@ def api_export(h, p):
             {"Content-Disposition": 'attachment; filename="ids-events-export.csv"'})
 
 
+# ------------------------------------------------------------------ audit trail for actions that have no domain-level entry
+def _audit_after(h, fn, params, groups, res):
+    """Record what a successful request changed. Alert, case, user and token changes are logged where they happen
+    (they know the before and after values); this covers the rest."""
+    me = h.user["username"]
+    b = h._jb if h._jb is not None else {}
+    n = fn.__name__
+    log = lambda action, detail="", target="": auth.log(me, action, detail, target)
+    if n == "api_event_note":
+        log("event.note", "note removed" if not str(b.get("note", "")).strip() else "note saved", f"event:{groups[0]}")
+    elif n == "api_alert_bulk":
+        log("alert.bulk", f"{res['updated']} alert(s) set to {b.get('status')}")
+    elif n == "api_run":
+        log("detections.run", f"{res['created']} new, {res['updated']} updated, {res['reopened']} re-opened")
+    elif n == "api_settings_put":
+        parts = []
+        for k in b:
+            if k == "ts_min":
+                parts.append(f"earliest plausible date = {b[k]}")
+            elif k == "case_tasks":
+                parts.append(f"case checklist ({len(b[k])} tasks)")
+            elif k == "rules" and isinstance(b[k], dict):
+                parts.append("detection rules: " + ", ".join(f"{r} {json.dumps(v)}" for r, v in b[k].items()))
+            else:
+                parts.append(k)
+        log("settings.update", "; ".join(parts))
+    elif n == "api_catalog_put" and isinstance(b, list):
+        log("catalog.update", f"{len(b)} event type(s): " + ", ".join(f"{i.get('cat_id')} → {i.get('severity')}" for i in b[:8]) + (" …" if len(b) > 8 else ""))
+    elif n == "api_import_delete":
+        log("data.import.delete", f"{res['deleted_events']} events removed", f"import:{groups[0]}")
+    elif n in ("api_import", "api_ingest"):
+        name = (params.get("filename") or params.get("source") or ["upload"])[0]
+        log("data.import" if n == "api_import" else "data.ingest", f"{name}: {res['rows_new']} new, {res['rows_duplicate']} duplicate, {res['rows_invalid']} unusable")
+    elif n == "api_reset":
+        log("data.reset", "all events, alerts, cases and notes deleted")
+    elif n == "api_export":
+        log("data.export", "events exported as CSV" + (f" ({'&'.join(k + '=' + v[0] for k, v in params.items())})" if params else ""))
+
+
 # ------------------------------------------------------------------ HTTP plumbing
 class Handler(BaseHTTPRequestHandler):
     server_version = "IDS-SIEM"
@@ -511,12 +570,15 @@ class Handler(BaseHTTPRequestHandler):
             raise HttpError(400, f"incomplete upload: received {len(data)} of {n} bytes")
         return data
 
+    _jb = None
+
     def json_body(self):
         raw = self.raw_body()
         try:
-            return json.loads(raw.decode("utf-8")) if raw else {}
+            self._jb = json.loads(raw.decode("utf-8")) if raw else {}
         except ValueError:
             raise HttpError(400, "invalid JSON body")
+        return self._jb
 
     def send(self, code, ctype, body, extra=None):
         self.send_response(code)
@@ -538,6 +600,7 @@ class Handler(BaseHTTPRequestHandler):
         self.user = None
         self.set_cookie = None
         self._body_read = False
+        self._jb = None
         try:
             host = (self.headers.get("Host") or "").rsplit(":", 1)[0] if not (self.headers.get("Host") or "").startswith("[") else "[::1]"
             if host not in ALLOWED_HOSTS:
@@ -557,13 +620,18 @@ class Handler(BaseHTTPRequestHandler):
                                 if not self.user:
                                     raise HttpError(401, "login required")
                                 if meta["session_only"] and self.user["via"] != "session":
+                                    auth.log(self.user["username"], "access.denied", f"{method} {u.path}: needs a session, not a token", via=f"token #{self.user.get('token_id')}")
                                     raise HttpError(403, "this needs a signed-in session, not an API token")
                                 if self.user["level"] < meta["level"]:
                                     need = auth.LEVEL_NAME[meta["level"]]
                                     who = "Your role" if self.user["via"] == "session" else "This token"
+                                    auth.log(self.user["username"], "access.denied", f"{method} {u.path}: {auth.LEVEL_NAME[self.user['level']]} access, needs {need}",
+                                             via="session" if self.user["via"] == "session" else f"token #{self.user.get('token_id')}")
                                     raise HttpError(403, f"{who} ({auth.LEVEL_NAME[self.user['level']]}) may not do this. It needs {need} access.")
                             auth.set_current(self.user)
                             res = fn(self, params, *mt.groups())
+                            if self.user and not meta["public"]:
+                                _audit_after(self, fn, params, mt.groups(), res if not (isinstance(res, tuple) and res and res[0] == "raw") else None)
                             extra = None
                             if self.set_cookie is not None:
                                 raw, ttl = self.set_cookie

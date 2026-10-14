@@ -203,6 +203,7 @@ def run_all():
                         c.execute("INSERT INTO alert_comments(alert_id, author, body, created_at) VALUES(?,?,?,?)",
                                   (row["id"], "system", f"Re-opened: {a['count'] - row['event_count']} new matching event(s).", now))
                         stats["reopened"] += 1
+                        auth.log("system", "alert.reopen", f"{a['count'] - row['event_count']} new matching event(s)", target=f"alert:{row['id']}", via="detection")
                         cr = c.execute("SELECT case_id FROM case_alerts WHERE alert_id=?", (row["id"],)).fetchone()
                         if cr:
                             c.execute("INSERT INTO case_log(case_id, author, kind, body, created_at) VALUES(?,?,?,?,?)",
@@ -302,10 +303,13 @@ def update_alert(aid, body):
         c.execute("UPDATE alerts SET status=?, updated_at=? WHERE id=?", (body["status"], now, aid))
         c.execute("INSERT INTO alert_comments(alert_id, author, body, created_at) VALUES(?,?,?,?)",
                   (aid, "system", f"{who} changed status: {r['status']} → {body['status']}", now))
+        auth.log(auth.current_actor(), "alert.status", f"{r['status']} → {body['status']}", target=f"alert:{aid}")
     if "assignee" in body and body["assignee"] != r["assignee"]:
         c.execute("UPDATE alerts SET assignee=?, updated_at=? WHERE id=?", (str(body["assignee"])[:60], now, aid))
+        auth.log(auth.current_actor(), "alert.assign", f"'{r['assignee']}' → '{str(body['assignee'])[:60]}'", target=f"alert:{aid}")
     if body.get("comment"):
         c.execute("INSERT INTO alert_comments(alert_id, author, body, created_at) VALUES(?,?,?,?)", (aid, who, str(body["comment"])[:5000], now))
+        auth.log(auth.current_actor(), "alert.comment", f"note added ({len(str(body['comment']))} characters)", target=f"alert:{aid}")
         c.execute("UPDATE alerts SET updated_at=? WHERE id=?", (now, aid))
     c.commit()
     return get_alert(aid)
