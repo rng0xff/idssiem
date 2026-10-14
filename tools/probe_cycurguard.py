@@ -75,9 +75,14 @@ def main():
         if st == 200:
             try:
                 j = json.loads(raw)
-                print("  top-level:", list(j)[:12] if isinstance(j, dict) else f"list of {len(j)}")
+                if isinstance(j, dict):
+                    print("  top-level keys:", list(j)[:12])
+                elif isinstance(j, list):
+                    print(f"  list of {len(j)}")
+                else:
+                    print("  value:", str(j)[:80])
             except ValueError:
-                pass
+                print("  (not JSON)")
         elif st in (401, 403):
             print("  The token was refused here. Tell me which status you got.")
     print("\nDone. Send me probe_out/ (after a look at the VINs).")
