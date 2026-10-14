@@ -1,0 +1,21 @@
+{
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "ids-siem-token",
+      "description": "Fleet IDS API token (Account page). Start with a view token.",
+      "password": true
+    }
+  ],
+  "servers": {
+    "fleet-ids": {
+      "type": "stdio",
+      "command": "python3",
+      "args": ["${workspaceFolder}/agent/mcp_server.py"],
+      "env": {
+        "IDS_SIEM_URL": "http://127.0.0.1:8765",
+        "IDS_SIEM_TOKEN": "${input:ids-siem-token}"
+      }
+    }
+  }
+}

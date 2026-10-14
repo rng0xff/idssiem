@@ -30,6 +30,7 @@ It cannot change an alert's status, link alerts to cases, create, close or delet
      "env": { "IDS_SIEM_URL": "http://127.0.0.1:8765", "IDS_SIEM_TOKEN": "ids_xxxxxxxx" }
    }
    ```
+   GitHub Copilot in Visual Studio Code (agent mode): open this folder in VS Code; `.vscode/mcp.json` is already included. Start the `fleet-ids` server from the Command Palette (**MCP: List Servers**), enter the token when asked (VS Code keeps it out of the file), then switch the Chat view to **Agent** mode. Copilot asks before each tool call by default. Needs VS Code 1.99 or later, and your organisation must not have switched MCP off. On Windows use `python` or `py` instead of `python3` in the file if needed. Microsoft 365 Copilot and Copilot Studio are not supported this way: they connect only to MCP servers reachable over the internet (Streamable HTTP), and this server is local by design.
 3. Ask it something, for example: *"Triage the new high-severity alerts and write a note on each."* The ready-made instructions are in `triage_prompt.md`; the server also hands its method to the client when it connects.
 
 Unattended, for example after a nightly sync: `claude -p "$(cat agent/triage_prompt.md)"` with the server configured as above and only the `fleet-ids` tools allowed (see `claude --help` for the permission options).
