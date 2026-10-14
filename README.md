@@ -45,7 +45,7 @@ python idssiem.py --sync            # first run: everything; later runs: only wh
 python idssiem.py --sync --days 90  # first run: only the last 90 days
 ```
 
-- **Check connection** shows the backend version, how many events a sync would pull, and the first three, so you can check the mapping before starting.
+- **Test connection** on the Users page checks the address and token you typed, before you save them. **Check connection** on the Data page shows the backend version, how many events a sync would pull, and the first three, so you can check the mapping before starting.
 - It pages through the backend by ingest time, oldest first, in pages of 5,000 (the backend caps one search at about 10,000). Each page is committed, so stopping or a failure keeps what was downloaded and the next sync continues from there.
 - Events are stored under the backend's own event id, so syncing twice never doubles anything. Events you imported from a file earlier are matched to their backend copy once, not duplicated.
 - Detections run after every sync, and each sync is written to the audit log.

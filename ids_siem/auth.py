@@ -127,6 +127,13 @@ def put_policy(new):
     return cur
 
 
+def check_backend_url(value):
+    u = str(value or "").strip().rstrip("/")
+    if u and not re.match(r"^(https://[^/\s]+|http://(127\.0\.0\.1|localhost)(:\d+)?)(/\S*)?$", u):
+        raise ValueError("The backend URL must start with https:// (http:// is only accepted for localhost)")
+    return u
+
+
 def get_backend():
     b = _get_private("_backend", {"base_url": "", "token": ""})
     return {"base_url": b["base_url"], "token_set": bool(b["token"]), "token_preview": b["token"][-4:] if len(b["token"]) > 12 else ""}
@@ -140,10 +147,7 @@ def backend_secret():
 def put_backend(new):
     cur = _get_private("_backend", {"base_url": "", "token": ""})
     if "base_url" in new:
-        u = str(new["base_url"]).strip().rstrip("/")
-        if u and not re.match(r"^(https://[^/\s]+|http://(127\.0\.0\.1|localhost)(:\d+)?)(/\S*)?$", u):
-            raise ValueError("The backend URL must start with https:// (http:// is only accepted for localhost)")
-        cur["base_url"] = u
+        cur["base_url"] = check_backend_url(new["base_url"])
     if new.get("clear_token"):
         cur["token"] = ""
     elif str(new.get("token", "")).strip():

@@ -211,6 +211,20 @@ def api_backend_put(h, p):
     return r
 
 
+@route("POST", "/api/backend/test", level=3)
+def api_backend_test(h, p):
+    b = h.json_body()
+    try:
+        r = cycurguard.test_connection(b.get("base_url"), b.get("token"))
+    except cycurguard.BackendError as e:
+        auth.log(h.user["username"], "backend.test", f"failed: {str(e)[:200]}")
+        raise HttpError(e.code, str(e))
+    except ValueError as e:
+        raise HttpError(400, str(e))
+    auth.log(h.user["username"], "backend.test", f"ok: {r['base_url']}, version {r['version']}, {r['total']} events")
+    return r
+
+
 @route("GET", "/api/audit", level=3)
 def api_audit(h, p):
     return _auth_call(auth.audit_list, p)

@@ -43,7 +43,7 @@ def _check(cfg):
         raise BackendError("The backend is not set up. An administrator can enter its address and API token on the Users page.", 400)
 
 
-def _request(cfg, method, path, body=None):
+def _request(cfg, method, path, body=None, timeout=TIMEOUT):
     _check(cfg)
     headers = {"Accept": "application/json", "Authorization": "Bearer " + cfg["token"]}
     data = None
@@ -52,7 +52,7 @@ def _request(cfg, method, path, body=None):
         headers["Content-Type"] = "application/json"
     req = urllib.request.Request(cfg["base_url"] + path, data=data, method=method, headers=headers)
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT, context=ssl.create_default_context()) as r:
+        with urllib.request.urlopen(req, timeout=timeout, context=ssl.create_default_context()) as r:
             raw = r.read()
     except urllib.error.HTTPError as e:
         detail = e.read()[:300].decode("utf-8", "replace")
@@ -275,3 +275,26 @@ def start_background(days, actor):
 
 def cancel():
     STATE["cancel"] = True
+
+
+def test_connection(base_url=None, token=None):
+    """Check address and token without saving anything. Blank fields fall back to what is saved."""
+    import time
+    cfg = config()
+    if base_url is not None and str(base_url).strip():
+        cfg["base_url"] = auth.check_backend_url(base_url)
+    if token is not None and str(token).strip():
+        cfg["token"] = str(token).strip()
+    if not cfg["base_url"]:
+        raise BackendError("Enter the backend address first.", 400)
+    if not cfg["token"]:
+        raise BackendError("Enter an API token first.", 400)
+    t0 = time.time()
+    v = _request(cfg, "GET", "/v1/version", timeout=20)  # open endpoint: proves the address is right
+    out = {"base_url": cfg["base_url"], "version": v.get("version") if isinstance(v, dict) else None}
+    try:
+        out["total"] = _request(cfg, "POST", "/v1/stats/count", {}, timeout=30)  # needs a valid token
+    except BackendError as e:
+        raise BackendError(f"The backend answered (version {out['version']}), but: {e}", e.code)
+    out["ms"] = int((time.time() - t0) * 1000)
+    return out

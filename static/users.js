@@ -139,7 +139,9 @@ ROUTES.users = async function () {
     <div class="params"><label>Backend URL<input type="text" id="be-url" value="${esc(be.base_url)}" placeholder="https://ineos.cycurguard.etas.com" style="width:340px"></label>
     <label>API token<input type="password" id="be-tok" autocomplete="off" placeholder="${be.token_set ? `saved, ends in ${esc(be.token_preview || '····')}` : 'paste the token'}" style="width:260px"></label></div>
     ${be.token_set ? '<p style="margin:12px 0 0"><label><input type="checkbox" id="be-clear"> Remove the saved token</label></p>' : ''}
-    <p style="margin:12px 0 0"><button class="btn" id="be-save">Save connection</button></p></div>
+    <p style="margin:12px 0 0"><button class="btn" id="be-test">Test connection</button> <button class="btn primary" id="be-save">Save connection</button></p>
+    <div id="be-result" role="status"></div>
+    <p class="muted" style="margin-bottom:0">Test uses what is typed above without saving it. If the token field is empty, the saved token is used.</p></div>
   <div class="panel"><h2>All API tokens</h2>${alltok.length ? `<div class="tablewrap"><table><thead><tr><th>Owner</th><th>Name</th><th>Token</th><th>Permission</th><th>Expires</th><th>Last used</th><th>State</th><th></th></tr></thead><tbody>
     ${alltok.map(t => `<tr><td>${esc(t.owner)}</td><td>${esc(t.name)}</td><td class="mono">ids_…${esc(t.preview)}</td><td>${esc(t.perm)}</td><td class="nowrap">${fmtExp(t.expires_at)}</td><td class="nowrap">${t.last_used ? fmtDay(t.last_used) : '<span class="muted">never</span>'}</td><td>${stateHtml(t.state)}</td><td>${t.state === 'active' ? `<button class="btn small danger" data-revoke="${t.id}">Revoke</button>` : ''}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">No tokens yet.</div>'}</div>
   <p class="muted">Everything done in the application is recorded in the <a href="#/audit">audit log</a>.</p>`;
@@ -147,6 +149,15 @@ ROUTES.users = async function () {
   $('#u-new').addEventListener('click', () => userForm(null));
   $('#pl-save').addEventListener('click', async () => {
     try { await api('/api/auth/policy', { method: 'PUT', json: { session_hours: $('#pl-sess').value, min_password_length: $('#pl-pw').value, token_default_days: $('#pl-def').value, token_max_days: $('#pl-max').value, tokens_enabled: $('#pl-on').checked } }); toast('Rules saved'); render(); } catch (e) { toast(e.message, true); }
+  });
+  $('#be-test').addEventListener('click', async () => {
+    const out = $('#be-result'); out.innerHTML = '<p class="muted">Testing…</p>';
+    const btn = $('#be-test'); btn.disabled = true;
+    try {
+      const r = await api('/api/backend/test', { method: 'POST', json: { base_url: $('#be-url').value, token: $('#be-tok').value } });
+      out.innerHTML = `<div class="note ok" style="margin:12px 0 0"><b>Connected.</b> ${esc(r.base_url)} runs version ${esc(r.version)}. The token is accepted and the backend holds <b>${fmtN(r.total)}</b> events. (${fmtN(r.ms)} ms)</div>`;
+    } catch (e) { out.innerHTML = `<div class="note err" role="alert" style="margin:12px 0 0"><b>Not connected.</b> ${esc(e.message)}</div>`; }
+    btn.disabled = false;
   });
   $('#be-save').addEventListener('click', async () => {
     try { await api('/api/backend', { method: 'PUT', json: { base_url: $('#be-url').value, token: $('#be-tok').value, clear_token: !!($('#be-clear') && $('#be-clear').checked) } }); toast('Connection saved'); render(); } catch (e) { toast(e.message, true); }
