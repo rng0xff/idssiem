@@ -402,7 +402,7 @@ ROUTES.alerts = async function (arg, P) {
     const sc = res.status_counts, cnt = k => k === 'all' ? Object.values(sc).reduce((a, b) => a + b, 0) : k === 'open' ? (sc.new || 0) + (sc.in_progress || 0) : (sc[k] || 0);
     $('#tabs').innerHTML = TABS.map(t => `<button data-tab="${t[0]}" class="${t[0] === tab ? 'on' : ''}">${t[1]}<span class="ct">${fmtN(cnt(t[0]))}</span></button>`).join('');
     $('#alist').innerHTML = res.alerts.length ? `<div class="tablewrap"><table><thead><tr><th><input type="checkbox" id="chkall" aria-label="Select all"></th>${sortHeader('Severity', 'severity', sort, dir)}<th>Alert</th><th>Detection</th><th>Vehicle</th><th>Case</th>${sortHeader('Events', 'events', sort, dir, 'num')}${sortHeader('Last event', 'last', sort, dir)}${sortHeader('Status', 'status', sort, dir)}<th>Assignee</th></tr></thead><tbody>
-      ${res.alerts.map(a => `<tr class="row" data-aid="${a.id}"><td><input type="checkbox" class="chk" value="${a.id}" aria-label="Select alert ${a.id}"></td><td>${sevHtml(a.severity)}</td><td>${esc(a.title)}</td><td class="muted">${esc(a.rule_title)}</td><td class="mono">${a.vin ? esc(a.vin) : '<span class="muted">fleet</span>'}</td><td>${a.case_id ? `<a href="#/cases/${a.case_id}" data-stop>#${a.case_id}</a>` : '<span class="muted">none</span>'}</td><td class="num">${fmtN(a.event_count)}</td><td class="nowrap">${fmtDay(a.last_ts) || '<span class="muted">none</span>'}</td><td>${statusHtml(a.status)}</td><td>${esc(a.assignee)}</td></tr>`).join('')}</tbody></table></div>${pagerHtml(res.total, res.page, res.size)}`
+      ${res.alerts.map(a => `<tr class="row" data-aid="${a.id}"><td><input type="checkbox" class="chk" value="${a.id}" aria-label="Select alert ${a.id}"></td><td>${sevHtml(a.severity)}</td><td>${esc(a.title)}</td><td class="muted">${esc(a.rule_title)}</td><td class="mono">${a.vin ? esc(a.vin) : '<span class="muted">fleet</span>'}</td><td>${a.case_id ? `<a href="#/cases/${a.case_id}" data-stop>#${a.case_id}</a>` : a.suggested_case ? `<span class="muted">maybe </span><a href="#/cases/${a.suggested_case}" data-stop>#${a.suggested_case}</a>` : '<span class="muted">none</span>'}</td><td class="num">${fmtN(a.event_count)}</td><td class="nowrap">${fmtDay(a.last_ts) || '<span class="muted">none</span>'}</td><td>${statusHtml(a.status)}</td><td>${esc(a.assignee)}</td></tr>`).join('')}</tbody></table></div>${pagerHtml(res.total, res.page, res.size)}`
       : `<div class="panel"><div class="empty"><b>${tab === 'open' ? 'No open alerts' : 'No alerts here'}</b>${tab === 'open' ? 'Detections run automatically after every import.' : 'Change the tab or filters.'}</div></div>`;
   };
   await load();
@@ -448,7 +448,7 @@ async function openAlert(id) {
     <p style="margin:14px 0"><a class="btn primary" href="${hashFor('events', f)}">Show matching events</a></p>
     <h3>Case</h3>
     ${a.case ? `<p style="margin:0"><a href="${hashFor('cases', {}, a.case.id)}">Case #${a.case.id}: ${esc(a.case.title)}</a> ${caseStatusHtml(a.case.status)}</p>`
-      : `<p style="margin:0"><button class="btn primary" data-act="new-case" data-id="${a.id}">Create case</button> <button class="btn" data-act="link-case" data-id="${a.id}">Add to existing case</button></p>`}
+      : `${(a.suggested_cases || []).length ? `<div class="note" style="margin:0 0 10px"><b>May belong to an existing case.</b>${a.suggested_cases.map(c => `<div style="margin-top:6px"><a href="${hashFor('cases', {}, c.id)}">Case #${c.id}: ${esc(c.title)}</a> ${caseStatusHtml(c.status)}<div class="muted">${esc(c.basis.charAt(0).toUpperCase() + c.basis.slice(1))}: alert #${c.alert_id} (${esc(statusLabel(c.alert_status))}) is in this case.${c.status === 'closed' ? ` The case is closed${c.resolution ? ' (' + esc(c.resolution.replace(/_/g, ' ')) + ')' : ''}; reopen it to add this alert.` : ''}</div>${c.status !== 'closed' && ME && ME.level >= 2 ? `<button class="btn small" style="margin-top:4px" data-act="add-to-case" data-id="${a.id}" data-case="${c.id}">Add to case #${c.id}</button>` : ''}</div>`).join('')}</div>` : ''}<p style="margin:0"><button class="btn primary" data-act="new-case" data-id="${a.id}">Create case</button> <button class="btn" data-act="link-case" data-id="${a.id}">Add to existing case</button></p>`}
     ${a.status === 'suppressed' ? `<p class="note" style="margin:14px 0 0">A suppression rule hides this alert from the open list. See <a href="#/detections">Detections</a>.</p>` : (ME && ME.level >= 2 ? `<p style="margin:10px 0 0"><button class="btn" data-act="suppress" data-id="${a.id}">Suppress similar alerts</button></p>` : '')}
     <h3>Assignee</h3>
     <p style="margin:0"><input type="text" id="assignee" list="userlist" value="${esc(a.assignee)}" placeholder="Name" style="width:200px"> <button class="btn small" data-act="set-assignee" data-id="${a.id}">Save</button></p>
@@ -462,6 +462,10 @@ $('#drawer').addEventListener('click', async e => {
   const id = +b.dataset.id, act = b.dataset.act;
   if (act === 'new-case') { openCaseForm([id]).catch(err => toast(err.message, true)); return; }
   if (act === 'suppress') { openSuppressForm(id).catch(err => toast(err.message, true)); return; }
+  if (act === 'add-to-case') {
+    try { await api(`/api/cases/${b.dataset.case}/alerts`, { method: 'POST', json: { alert_ids: [id] } }); toast(`Added to case #${b.dataset.case}`); await openAlert(id); if (window.__reloadAlerts && parseHash().name === 'alerts') window.__reloadAlerts(); } catch (err) { toast(err.message, true); }
+    return;
+  }
   if (act === 'link-case') { openLinkCase(id).catch(err => toast(err.message, true)); return; }
   try {
     if (act === 'set-status') await api('/api/alerts/' + id, { method: 'PATCH', json: { status: b.dataset.status } });

@@ -26,6 +26,10 @@ Data is stored in `data/siem.db` (SQLite). Set `IDS_SIEM_DB` to use another path
 | Users (admin) | Accounts and roles, sign-in and token rules, backend connection, all tokens |
 | Audit log (admin) | Who did what and when: search, filter by person, action group or date, export CSV, verify integrity |
 
+## Suggested cases
+
+An alert that is in no case shows **May belong to an existing case** when a case already contains an alert for the same vehicle and event type (for fleet-wide alerts: the same detection) with activity within 30 days of this one. Up to three cases are suggested, open ones first; a closed case is shown with its outcome and has to be reopened before alerts can be added. **Add to case #N** links the alert (analysts and admins; it is written to the audit log). Nothing is ever linked automatically. The alert list shows *maybe #N* in the Case column for new and in-progress alerts with an open suggestion.
+
 ## Suppression rules
 
 For patterns you have judged harmless (for example an event type that a bench tool always triggers). Create one from an alert (**Suppress similar alerts**) or on the Detections page. A rule matches on detection, ECU, event type and vehicle; empty fields match anything, at least one is required. It needs a reason and has an expiry (90 days preset, or none).

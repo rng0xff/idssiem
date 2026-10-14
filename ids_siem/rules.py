@@ -382,6 +382,43 @@ def run_all():
 STATUSES = ["new", "in_progress", "resolved", "false_positive"]
 
 
+SUGGEST_DAYS = 30
+
+
+def suggest_cases(c, a, limit=3):
+    """Cases that already deal with the same thing: same vehicle and event type (or same detection when the alert has no
+    event type), with the other alert's activity within 30 days of this one. Only a hint, nothing is linked."""
+    if a["case_id"] if "case_id" in a.keys() else c.execute("SELECT 1 FROM case_alerts WHERE alert_id=?", (a["id"],)).fetchone():
+        return []
+    when = a["first_ts"] or a["created_at"]
+    span = SUGGEST_DAYS * 86400000
+    if a["cat_id"]:
+        same, args = "b.cat_id = ?", [a["cat_id"]]
+    else:
+        same, args = "b.rule = ?", [a["rule"]]
+    vin = "b.vin = ?" if a["vin"] else "b.vin IS NULL"
+    if a["vin"]:
+        args.append(a["vin"])
+    rows = c.execute(
+        f"SELECT cs.id, cs.title, cs.status, cs.resolution, b.id AS alert_id, b.status AS alert_status, "
+        f"COALESCE(b.last_ts, b.created_at) AS seen FROM case_alerts ca JOIN alerts b ON b.id = ca.alert_id "
+        f"JOIN cases cs ON cs.id = ca.case_id WHERE b.id <> ? AND {same} AND {vin} "
+        f"AND ABS(COALESCE(b.last_ts, b.created_at) - ?) <= ? "
+        f"ORDER BY (cs.status = 'closed'), seen DESC", [a["id"]] + args + [when, span]).fetchall()
+    out, seen = [], set()
+    for r in rows:
+        if r["id"] in seen:
+            continue
+        seen.add(r["id"])
+        out.append({"id": r["id"], "title": r["title"], "status": r["status"], "resolution": r["resolution"],
+                    "alert_id": r["alert_id"], "alert_status": r["alert_status"],
+                    "basis": "same vehicle and event type" if a["cat_id"] and a["vin"] else
+                             ("same event type" if a["cat_id"] else "same vehicle and detection" if a["vin"] else "same detection")})
+        if len(out) >= limit:
+            break
+    return out
+
+
 def _alert_row(r):
     d = dict(r)
     d["details"] = json.loads(d["details"] or "{}")
@@ -425,7 +462,13 @@ def list_alerts(p):
         f"LEFT JOIN case_alerts ca ON ca.alert_id = alerts.id LEFT JOIN cases cs ON cs.id = ca.case_id "
         f"WHERE {where} ORDER BY {sort} {d}, alerts.updated_at DESC LIMIT ? OFFSET ?", a + [size, (page - 1) * size]).fetchall()
     counts = {r["status"]: r["n"] for r in c.execute("SELECT status, COUNT(*) n FROM alerts GROUP BY status")}
-    return {"total": total, "page": page, "size": size, "alerts": [_alert_row(r) for r in rows], "status_counts": counts}
+    alerts = [_alert_row(r) for r in rows]
+    for al in alerts:
+        al["suggested_case"] = None
+        if al["status"] in ("new", "in_progress") and not al["case_id"]:
+            sg = [x for x in suggest_cases(c, al, 1) if x["status"] != "closed"]
+            al["suggested_case"] = sg[0]["id"] if sg else None
+    return {"total": total, "page": page, "size": size, "alerts": alerts, "status_counts": counts}
 
 
 def get_alert(aid):
@@ -436,6 +479,7 @@ def get_alert(aid):
     d = _alert_row(r)
     cs = c.execute("SELECT cs.id, cs.title, cs.status FROM case_alerts ca JOIN cases cs ON cs.id=ca.case_id WHERE ca.alert_id=?", (aid,)).fetchone()
     d["case"] = dict(cs) if cs else None
+    d["suggested_cases"] = [] if cs else suggest_cases(c, r)
     d["comments"] = [dict(x) for x in c.execute("SELECT * FROM alert_comments WHERE alert_id=? ORDER BY created_at", (aid,))]
     d["rule_description"] = RULE_INFO.get(d["rule"], ("", ""))[1]
     return d

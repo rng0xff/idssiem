@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS alerts(
   created_at INTEGER, updated_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS ix_al_status ON alerts(status);
+CREATE INDEX IF NOT EXISTS ix_al_vin ON alerts(vin);
 CREATE TABLE IF NOT EXISTS suppressions(
   id INTEGER PRIMARY KEY,
   rule TEXT DEFAULT '', vin TEXT DEFAULT '', ecu_name TEXT DEFAULT '', cat_id TEXT DEFAULT '',
