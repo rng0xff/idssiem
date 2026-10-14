@@ -21,8 +21,20 @@ from . import auth, cases, catalog, cycurguard, db, ingest, mfa, query, rules, s
 
 STATIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static")
 MAX_BODY = 1024 * 1024 * 1024
-ALLOWED_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
+HOST_RX = re.compile(r"^(127\.0\.0\.1|localhost|\[::1\])(:\d{1,5})?$", re.I)
+MAX_JSON = 16 * 1024 * 1024        # JSON bodies; file uploads (import) may be larger
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+    "Content-Security-Policy": ("default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+                                "object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"),
+}
 
+THROTTLED = {"/api/auth/login", "/api/auth/mfa", "/api/auth/passkey/verify", "/api/auth/setup"}
 ROUTES = []
 
 
@@ -36,6 +48,12 @@ def route(method, pattern, level=None, public=False, session_only=False):
         ROUTES.append((method, rx, fn, meta))
         return fn
     return deco
+
+
+def csv_safe(row):
+    """A spreadsheet runs a cell that starts with = + - @ (or a tab or return) as a formula. Event names and notes come from
+    outside, so such text gets a leading apostrophe. Numbers are left alone."""
+    return [("'" + v) if isinstance(v, str) and v[:1] in ("=", "+", "-", "@", "\t", "\r") else v for v in row]
 
 
 class HttpError(Exception):
@@ -384,8 +402,8 @@ def api_audit_export(h, p):
     w = csv.writer(buf, delimiter=";")
     w.writerow(["id", "time_utc", "actor", "via", "action", "target", "detail"])
     for r in auth.audit_iter(p):
-        w.writerow([r["id"], datetime.datetime.fromtimestamp(r["ts"] / 1000, datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
-                    r["actor"], r["via"], r["action"], r["target"], r["detail"]])
+        w.writerow(csv_safe([r["id"], datetime.datetime.fromtimestamp(r["ts"] / 1000, datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+                             r["actor"], r["via"], r["action"], r["target"], r["detail"]]))
     auth.log(auth.current_actor(), "audit.export", "audit log exported as CSV")
     return ("raw", "text/csv; charset=utf-8", buf.getvalue().encode("utf-8-sig"),
             {"Content-Disposition": 'attachment; filename="ids-audit-log.csv"'})
@@ -480,7 +498,7 @@ def api_sevconfig(h, p):
 @route("PUT", "/api/sync/sevconfig", level=3)
 def api_sevconfig_put(h, p):
     try:
-        return sevconfig.load(h.raw_body(), h.user["username"])
+        return sevconfig.load(h.raw_body(32 * 1024 * 1024), h.user["username"])
     except ValueError as e:
         raise HttpError(400, str(e))
 
@@ -729,8 +747,8 @@ def api_export(h, p):
     w.writerow(EXPORT_COLS)
     for r in query.iter_events_for_export(p):
         ts_utc = datetime.datetime.fromtimestamp(r["ts"] / 1000, datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S") if r["ts_ok"] else ""
-        w.writerow([r["event_type"], r["ts"] if r["ts"] is not None else "", ts_utc, r["vin"], r["ecu_name"], r["ecu_id"],
-                    r["event_id"] if r["event_id"] is not None else "", r["name"], r["severity"], r["category"], r["description"]])
+        w.writerow(csv_safe([r["event_type"], r["ts"] if r["ts"] is not None else "", ts_utc, r["vin"], r["ecu_name"], r["ecu_id"],
+                             r["event_id"] if r["event_id"] is not None else "", r["name"], r["severity"], r["category"], r["description"]]))
     return ("raw", "text/csv; charset=utf-8", buf.getvalue().encode("utf-8-sig"),
             {"Content-Disposition": 'attachment; filename="ids-events-export.csv"'})
 
@@ -797,18 +815,33 @@ class Handler(BaseHTTPRequestHandler):
         """A handler that never reads its body would leave it on the keep-alive connection and corrupt the next request."""
         if self._body_read:
             return
-        n = int(self.headers.get("Content-Length") or 0)
+        try:
+            n = max(0, int(self.headers.get("Content-Length") or 0))
+        except ValueError:
+            self.close_connection = True
+            return
         if n > 1024 * 1024:
             self.close_connection = True  # do not swallow a huge unread upload
         elif n:
             self.rfile.read(n)
         self._body_read = True
 
-    def raw_body(self):
+    def _length(self):
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            n = -1
+        if n < 0:
+            self.close_connection = True
+            raise HttpError(400, "invalid Content-Length")
+        return n
+
+    def raw_body(self, limit=MAX_BODY):
         self._body_read = True
-        n = int(self.headers.get("Content-Length") or 0)
-        if n > MAX_BODY:
-            raise HttpError(413, "upload too large")
+        n = self._length()
+        if n > limit:
+            self.close_connection = True
+            raise HttpError(413, "request too large")
         data = self.rfile.read(n) if n else b""
         if len(data) != n:  # connection dropped mid-upload: never import a truncated file
             raise HttpError(400, f"incomplete upload: received {len(data)} of {n} bytes")
@@ -817,7 +850,7 @@ class Handler(BaseHTTPRequestHandler):
     _jb = None
 
     def json_body(self):
-        raw = self.raw_body()
+        raw = self.raw_body(MAX_JSON)
         try:
             self._jb = json.loads(raw.decode("utf-8")) if raw else {}
         except ValueError:
@@ -829,8 +862,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:")
+        for k, v in SECURITY_HEADERS.items():
+            self.send_header(k, v)
         for k, v in (extra or {}).items():
             self.send_header(k, v)
         self.end_headers()
@@ -845,15 +878,18 @@ class Handler(BaseHTTPRequestHandler):
         self.set_cookie = None
         self._body_read = False
         self._jb = None
+        throttled = False
         try:
-            host = (self.headers.get("Host") or "").rsplit(":", 1)[0] if not (self.headers.get("Host") or "").startswith("[") else "[::1]"
-            if host not in ALLOWED_HOSTS:
+            if not HOST_RX.match(self.headers.get("Host") or ""):
                 raise HttpError(403, "forbidden host")
             bearer = (self.headers.get("Authorization") or "").lower().startswith("bearer ")
             if method != "GET" and not bearer and self.headers.get("X-SIEM") != "1":
                 raise HttpError(403, "missing X-SIEM header")
             u = urlparse(self.path)
             params = parse_qs(u.query)
+            throttled = method == "POST" and u.path in THROTTLED
+            if throttled:
+                auth.throttle_check()
             if u.path.startswith("/api/"):
                 for m, rx, fn, meta in ROUTES:
                     if m == method:
@@ -890,10 +926,12 @@ class Handler(BaseHTTPRequestHandler):
                 raise HttpError(405, "method not allowed")
             return self.static(u.path)
         except (HttpError, auth.AuthError) as e:
+            if throttled and e.code in (400, 401, 403):
+                auth.throttle_hit()
             self.send_json(e.code, {"error": e.msg})
         except Exception as e:  # noqa
-            traceback.print_exc()
-            self.send_json(500, {"error": f"{type(e).__name__}: {e}"})
+            traceback.print_exc()  # the details stay in the server console
+            self.send_json(500, {"error": "Internal error. See the server console for details."})
         finally:
             auth.set_current(None)
             try:

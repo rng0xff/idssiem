@@ -67,6 +67,13 @@ def rows_from_xlsx(data: bytes):
         import openpyxl
     except ImportError:
         raise ImportError_("Excel import needs the 'openpyxl' package: pip install openpyxl")
+    import zipfile
+    try:  # refuse a zip bomb: a small file that unpacks to gigabytes
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            if sum(i.file_size for i in z.infolist()) > 4 * 1024 ** 3 or len(z.infolist()) > 5000:
+                raise ImportError_("This Excel file unpacks to an unreasonable size and was refused.")
+    except zipfile.BadZipFile:
+        raise ImportError_("This is not a valid Excel file.")
     wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
     ws = wb.worksheets[0]
     it = ws.iter_rows(values_only=True)

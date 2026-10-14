@@ -34,6 +34,25 @@ POLICY_DEFAULT = {"session_hours": 8, "tokens_enabled": True, "token_default_day
 _cur = threading.local()
 
 
+_hits = []
+_hits_lock = threading.Lock()
+THROTTLE_MAX, THROTTLE_SECONDS = 40, 60
+
+
+def throttle_check():
+    now = time.time()
+    with _hits_lock:
+        while _hits and now - _hits[0] > THROTTLE_SECONDS:
+            _hits.pop(0)
+        if len(_hits) >= THROTTLE_MAX:
+            raise AuthError(429, "Too many failed sign-in attempts. Wait a minute and try again.")
+
+
+def throttle_hit():
+    with _hits_lock:
+        _hits.append(time.time())
+
+
 class AuthError(Exception):
     def __init__(self, code, msg):
         self.code, self.msg = code, msg
@@ -53,16 +72,27 @@ def _now():
 
 
 # ------------------------------------------------------------------ passwords
+SCRYPT_N = 2 ** 15   # about 100 ms per check; older hashes (2**14) still verify and are upgraded at the next sign-in
+SCRYPT_MEM = 256 * 1024 * 1024
+
+
 def hash_pw(pw):
     salt = os.urandom(16)
-    h = hashlib.scrypt(pw.encode(), salt=salt, n=2 ** 14, r=8, p=1, dklen=32)
-    return f"scrypt$16384$8$1${salt.hex()}${h.hex()}"
+    h = hashlib.scrypt(pw.encode(), salt=salt, n=SCRYPT_N, r=8, p=1, dklen=32, maxmem=SCRYPT_MEM)
+    return f"scrypt${SCRYPT_N}$8$1${salt.hex()}${h.hex()}"
+
+
+def needs_rehash(stored):
+    try:
+        return int(stored.split("$")[1]) < SCRYPT_N
+    except (IndexError, ValueError):
+        return False
 
 
 def verify_pw(pw, stored):
     try:
         _, n, r, p, salt, h = stored.split("$")
-        calc = hashlib.scrypt(pw.encode(), salt=bytes.fromhex(salt), n=int(n), r=int(r), p=int(p), dklen=32)
+        calc = hashlib.scrypt(pw.encode(), salt=bytes.fromhex(salt), n=int(n), r=int(r), p=int(p), dklen=32, maxmem=SCRYPT_MEM)
         return hmac.compare_digest(calc.hex(), h)
     except (ValueError, TypeError):
         return False
@@ -472,6 +502,9 @@ def login(username, password):
         else:
             register_failure(r, "account inactive" if not r["active"] else "wrong password")
         raise AuthError(401, "Wrong username or password")
+    if needs_rehash(r["pw_hash"]):
+        c.execute("UPDATE users SET pw_hash=? WHERE id=?", (hash_pw(str(password)), r["id"]))
+        c.commit()
     if mfa.has_mfa(r["id"]):  # the failure count is cleared only when the whole sign-in succeeds
         raise MfaNeeded(mfa.begin_login(r["id"]))
     return start_session(r)

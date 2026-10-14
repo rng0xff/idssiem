@@ -155,15 +155,23 @@ _local = threading.local()
 def conn():
     c = getattr(_local, "c", None)
     if c is None:
-        os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-        c = sqlite3.connect(DB_PATH, timeout=30)
-        try:  # the file holds password hashes and a backend token: owner only
+        d = os.path.dirname(DB_PATH)
+        os.makedirs(d, mode=0o700, exist_ok=True)
+        try:  # the file holds password hashes and a backend token: owner only, from the moment it exists
+            fd = os.open(DB_PATH, os.O_CREAT | os.O_RDWR, 0o600)
+            os.close(fd)
             os.chmod(DB_PATH, 0o600)
         except OSError:
             pass
+        c = sqlite3.connect(DB_PATH, timeout=30)
         c.row_factory = sqlite3.Row
         c.execute("PRAGMA journal_mode=WAL")
         c.execute("PRAGMA synchronous=NORMAL")
+        for ext in ("-wal", "-shm"):
+            try:
+                os.chmod(DB_PATH + ext, 0o600)
+            except OSError:
+                pass
         _local.c = c
     return c
 
