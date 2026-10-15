@@ -273,14 +273,15 @@ async function openCaseForm(alertIds) {
 }
 
 /* add one alert to an existing open case */
-async function openLinkCase(alertId) {
+async function openLinkCase(alertIds, done) {
+  const ids = [].concat(alertIds), many = ids.length > 1;
   const cs = await api('/api/cases/picker');
-  openDrawer('Add alert to a case', cs.length ? `
+  openDrawer(many ? `Add ${ids.length} alerts to a case` : 'Add alert to a case', cs.length ? `
     <label class="field"><span>Case</span><select id="lk-case">${cs.map(c => `<option value="${c.id}">#${c.id} ${esc(c.title)} (${esc(caseStatusLabel(c.status))})</option>`).join('')}</select></label>
     <p style="margin:0"><button class="btn primary" id="lk-go">Add to case</button> <button class="btn" data-act="close-drawer">Cancel</button></p>` : '<p class="muted">There is no open case yet. Create one instead.</p>');
   const b = $('#lk-go');
   if (b) b.addEventListener('click', async () => {
     const id = +$('#lk-case').value;
-    try { await api(`/api/cases/${id}/alerts`, { method: 'POST', json: { alert_ids: [alertId] } }); closeDrawer(); toast(`Alert added to case #${id}`); refreshChrome(); location.hash = hashFor('cases', {}, id); } catch (e) { toast(e.message, true); }
+    try { await api(`/api/cases/${id}/alerts`, { method: 'POST', json: { alert_ids: ids } }); closeDrawer(); toast(`${many ? ids.length + ' alerts' : 'Alert'} added to case #${id}`); refreshChrome(); if (done) done(id); else location.hash = hashFor('cases', {}, id); } catch (e) { toast(e.message, true); }
   });
 }

@@ -426,7 +426,7 @@ ROUTES.alerts = async function (arg, P) {
     <select id="arule" aria-label="Detection"><option value="">Any detection</option>${rulesList.map(r => `<option value="${r.id}" ${raw.rule === r.id ? 'selected' : ''}>${esc(r.title)}</option>`).join('')}</select>
     <select id="acase" aria-label="Case"><option value="">Any case state</option><option value="none" ${raw.case === 'none' ? 'selected' : ''}>Not in a case</option><option value="any" ${raw.case === 'any' ? 'selected' : ''}>In a case</option></select>
     <span class="spacer" style="flex:1"></span>
-    <span id="bulk" style="display:none"><span id="bulkn" class="muted"></span> <button class="btn small primary" data-bulkcase="1">Create case</button> <button class="btn small" data-bulk="in_progress">Start</button> <button class="btn small" data-bulk="resolved">Resolve</button> <button class="btn small" data-bulk="false_positive">Mark false positive</button></span></div>
+    <span id="bulk" style="display:none"><span id="bulkn" class="muted"></span> <button class="btn small primary" data-bulkcase="1">Create case</button> <button class="btn small" data-bulkcase="add">Add to case</button> <button class="btn small" data-bulk="in_progress">Start</button> <button class="btn small" data-bulk="resolved">Resolve</button> <button class="btn small" data-bulk="false_positive">Mark false positive</button></span></div>
   <div id="alist"></div>`;
 
   const nav = patch => { const n = { tab, q: raw.q, severity: raw.severity, rule: raw.rule, case: raw.case, sort, dir, ...patch }; Object.keys(n).forEach(k => !n[k] && delete n[k]); go('alerts', n); };
@@ -449,7 +449,11 @@ ROUTES.alerts = async function (arg, P) {
     if (e.target.id === 'chkall') { $$('.chk').forEach(c => { c.checked = e.target.checked; }); return updateBulk(); }
     if (e.target.classList.contains('chk')) { e.stopPropagation(); return updateBulk(); }
     const bc = e.target.closest('[data-bulkcase]');
-    if (bc) { const ids = $$('.chk:checked').map(c => +c.value); if (ids.length) openCaseForm(ids); return; }
+    if (bc) {
+      const ids = $$('.chk:checked').map(c => +c.value);
+      if (ids.length) { if (bc.dataset.bulkcase === 'add') openLinkCase(ids, () => load()).catch(err => toast(err.message, true)); else openCaseForm(ids); }
+      return;
+    }
     const bk = e.target.closest('[data-bulk]');
     if (bk) { try { const ids = $$('.chk:checked').map(c => +c.value); await api('/api/alerts/bulk', { method: 'POST', json: { ids, status: bk.dataset.bulk } }); toast(`${ids.length} alert(s) updated`); await load(); updateBulk(); refreshChrome(); } catch (err) { toast(err.message, true); } return; }
     if (e.target.id === 'rerun') { try { const r = await api('/api/detections/run', { method: 'POST' }); toast(`Detections done: ${r.created} new, ${r.updated} updated, ${r.reopened} re-opened`); await load(); refreshChrome(); } catch (err) { toast(err.message, true); } return; }
