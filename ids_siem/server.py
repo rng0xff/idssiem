@@ -569,7 +569,7 @@ def api_cases_dashboard(h, p):
 
 @route("GET", "/api/cases/picker")
 def api_cases_picker(h, p):
-    return cases.open_cases_for_picker()
+    return cases.open_cases_for_picker(everything=bool(p.get("all")))
 
 
 @route("GET", r"/api/cases/(\d+)")
@@ -615,6 +615,16 @@ def api_case_task_update(h, p, cid, tid):
 @route("DELETE", r"/api/cases/(\d+)/tasks/(\d+)")
 def api_case_task_delete(h, p, cid, tid):
     return _case_call(cases.delete_task, int(cid), int(tid))
+
+
+@route("POST", r"/api/cases/(\d+)/links")
+def api_case_link(h, p, cid):
+    return _case_call(cases.link_case, int(cid), h.json_body())
+
+
+@route("DELETE", r"/api/cases/(\d+)/links/(\d+)")
+def api_case_unlink(h, p, cid, other):
+    return _case_call(cases.unlink_case, int(cid), int(other))
 
 
 @route("POST", r"/api/cases/(\d+)/alerts")
@@ -730,7 +740,7 @@ def api_reset(h, p):
     if h.json_body().get("confirm") != "DELETE ALL EVENTS":
         raise HttpError(400, "confirmation text missing")
     c = db.conn()
-    for t in ("events", "alert_events", "alerts", "alert_comments", "event_notes", "imports", "cases", "case_alerts", "case_tasks", "case_log"):
+    for t in ("events", "alert_events", "alerts", "alert_comments", "event_notes", "imports", "cases", "case_alerts", "case_links", "case_tasks", "case_log"):
         c.execute(f"DELETE FROM {t}")
     c.commit()
     return {"ok": True}

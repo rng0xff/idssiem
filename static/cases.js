@@ -104,7 +104,7 @@ function renderWeekly(el, weekly) {
 function casesTable(cases, { sort, dir } = {}) {
   const sh = (label, key, cls = '') => sort ? sortHeader(label, key, sort, dir, cls) : `<th class="${cls}">${label}</th>`;
   return `<div class="tablewrap"><table><thead><tr>${sh('Case', 'id')}<th>Title</th>${sh('Severity', 'severity')}${sh('Status', 'status')}${sh('Owner', 'owner')}<th class="num">Alerts</th><th>Checklist</th>${sh('Age', 'created', 'num')}${sh('Due', 'due')}${sh('Updated', 'updated')}</tr></thead><tbody>
-    ${cases.map(c => `<tr class="row" data-cid="${c.id}"><td class="nowrap">${caseRef(c.id)}</td><td><a class="rowlink" href="${hashFor('cases', {}, c.id)}">${esc(c.title)}</a></td><td>${sevHtml(c.severity)}</td><td>${caseStatusHtml(c.status)}</td><td>${esc(c.owner) || '<span class="muted">none</span>'}</td><td class="num">${c.alerts}</td><td>${progressHtml(c.tasks_done, c.tasks_total)}</td><td class="num nowrap">${ageHtml(c)}</td><td class="nowrap">${dueHtml(c)}</td><td class="nowrap">${fmtDay(c.updated_at)}</td></tr>`).join('')}
+    ${cases.map(c => `<tr class="row" data-cid="${c.id}"><td class="nowrap">${caseRef(c.id)}</td><td><a class="rowlink" href="${hashFor('cases', {}, c.id)}">${esc(c.title)}</a>${c.related ? ` <span class="muted" title="${c.related} related case${c.related > 1 ? 's' : ''}">&harr; ${c.related}</span>` : ''}</td><td>${sevHtml(c.severity)}</td><td>${caseStatusHtml(c.status)}</td><td>${esc(c.owner) || '<span class="muted">none</span>'}</td><td class="num">${c.alerts}</td><td>${progressHtml(c.tasks_done, c.tasks_total)}</td><td class="num nowrap">${ageHtml(c)}</td><td class="nowrap">${dueHtml(c)}</td><td class="nowrap">${fmtDay(c.updated_at)}</td></tr>`).join('')}
   </tbody></table></div>`;
 }
 
@@ -112,17 +112,19 @@ async function viewCasesList(tab, P) {
   const raw = paramsObj(P);
   const sort = raw.sort || 'severity', dir = raw.dir || 'desc', page = Math.max(1, +raw.page || 1);
   const status = tab === 'open' ? OPEN_FILTER : tab === 'closed' ? 'closed' : '';
-  const res = await api('/api/cases?' + qs({ status, severity: raw.severity, owner: raw.owner, overdue: raw.overdue, q: raw.q, sort, dir, page, size: 50 }));
+  const res = await api('/api/cases?' + qs({ status, severity: raw.severity, owner: raw.owner, overdue: raw.overdue, related: raw.related, q: raw.q, sort, dir, page, size: 50 }));
   view.innerHTML = `${casesHead(tab, res.status_counts)}
   <div class="filters"><input type="search" id="cq" value="${esc(raw.q || '')}" placeholder="Search title, or #number" aria-label="Search cases">
     <select id="csev" aria-label="Severity"><option value="">Any severity</option>${SEVS.slice().reverse().map(s => `<option ${raw.severity === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
     <select id="cowner" aria-label="Owner"><option value="">Any owner</option><option value="none" ${raw.owner === 'none' ? 'selected' : ''}>No owner</option>${res.owners.map(o => `<option ${raw.owner === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>
+    <select id="crel" aria-label="Related cases"><option value="">Related: any</option><option value="any" ${raw.related === 'any' ? 'selected' : ''}>With related cases</option><option value="none" ${raw.related === 'none' ? 'selected' : ''}>Without related cases</option></select>
     <label style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" id="cover" ${raw.overdue ? 'checked' : ''}> Overdue only</label></div>
   ${res.cases.length ? `${casesTable(res.cases, { sort, dir })}${pagerHtml(res.total, res.page, res.size)}` : '<div class="panel"><div class="empty"><b>No cases here</b>Change the tab or filters, or create a case from an alert.</div></div>'}`;
-  const nav = patch => { const n = { tab, q: raw.q, severity: raw.severity, owner: raw.owner, overdue: raw.overdue, sort, dir, ...patch }; Object.keys(n).forEach(k => !n[k] && delete n[k]); go('cases', n); };
+  const nav = patch => { const n = { tab, q: raw.q, severity: raw.severity, owner: raw.owner, overdue: raw.overdue, related: raw.related, sort, dir, ...patch }; Object.keys(n).forEach(k => !n[k] && delete n[k]); go('cases', n); };
   $('#cq').addEventListener('change', e => nav({ q: e.target.value.trim(), page: undefined }));
   $('#csev').addEventListener('change', e => nav({ severity: e.target.value, page: undefined }));
   $('#cowner').addEventListener('change', e => nav({ owner: e.target.value, page: undefined }));
+  $('#crel').addEventListener('change', e => nav({ related: e.target.value, page: undefined }));
   $('#cover').addEventListener('change', e => nav({ overdue: e.target.checked ? '1' : '', page: undefined }));
   bindCasesCommon((e) => {
     const pg = e.target.closest('[data-page]'); if (pg && !pg.disabled) { nav({ page: pg.dataset.page }); return true; }
@@ -171,6 +173,7 @@ async function viewCase(id, keepScroll = false) {
         <label class="field"><span>Owner</span><input type="text" data-f="owner" list="userlist" value="${esc(c.owner)}" placeholder="Who works on it"></label>
         <label class="field"><span>Due date${c.overdue ? ' <b style="color:var(--err)">(overdue)</b>' : ''}</span><input type="date" data-f="due_date" value="${esc(c.due_date)}"></label>
         <dl class="kv" style="grid-template-columns:80px minmax(0,1fr)"><dt>Opened</dt><dd>${esc(fmtMin(c.created_at))} UTC by ${esc(c.created_by)}</dd><dt>Age</dt><dd>${c.age_days} days</dd><dt>Updated</dt><dd>${esc(fmtMin(c.updated_at))} UTC</dd></dl></div>
+      ${relatedHtml(c)}
       <div class="panel"><h2>Vehicles involved</h2>${c.vehicles.length ? `<div class="bars" style="gap:2px">${c.vehicles.map(v => `<a class="bar" style="grid-template-columns:minmax(0,1fr) auto" href="${hashFor('vehicle', {}, v.vin)}"><span class="mono">${esc(v.vin)}</span><span class="val">${v.alerts} alert${v.alerts > 1 ? 's' : ''}</span></a>`).join('')}</div>` : '<p class="muted" style="margin:0">None, the alerts are fleet-wide.</p>'}</div>
     </div></div>`;
   if (sc) $('#main').scrollTop = sc;
@@ -198,6 +201,9 @@ async function viewCase(id, keepScroll = false) {
   view.onclick = async e => {
     const goto = e.target.closest('[data-goto]'); const ul = e.target.closest('[data-unlink]'); const dt = e.target.closest('[data-deltask]');
     if (ul) { try { await api(`/api/cases/${id}/alerts/${ul.dataset.unlink}`, { method: 'DELETE' }); toast('Alert removed from the case'); await reload(); } catch (err) { toast(err.message, true); } return; }
+    const uc = e.target.closest('[data-unlinkcase]'); const ls = e.target.closest('[data-linksim]');
+    if (uc) { try { await api(`/api/cases/${id}/links/${uc.dataset.unlinkcase}`, { method: 'DELETE' }); toast('Link removed'); await reload(); } catch (err) { toast(err.message, true); } return; }
+    if (ls) { try { await api(`/api/cases/${id}/links`, { method: 'POST', json: { case_id: +ls.dataset.linksim } }); toast(`Linked to case #${ls.dataset.linksim}`); await reload(); } catch (err) { toast(err.message, true); } return; }
     if (dt) { try { await api(`/api/cases/${id}/tasks/${dt.dataset.deltask}`, { method: 'DELETE' }); await reload(); } catch (err) { toast(err.message, true); } return; }
     const act = (e.target.closest('[data-cact]') || {}).dataset;
     if (act) {
@@ -209,6 +215,7 @@ async function viewCase(id, keepScroll = false) {
         else if (a === 'reopen') { await api(`/api/cases/${id}/reopen`, { method: 'POST' }); toast('Case reopened'); await reload(); refreshChrome(); }
         else if (a === 'delete') { if (confirm(`Delete case #${id}? Its alerts stay and become free again. This cannot be undone.`)) { await api('/api/cases/' + id, { method: 'DELETE' }); toast('Case deleted'); refreshChrome(); location.hash = '#/cases'; } }
         else if (a === 'addalerts') openAddAlerts(id, reload);
+        else if (a === 'linkcase') openLinkRelated(c, reload);
       } catch (err) { toast(err.message, true); }
       return;
     }
@@ -273,6 +280,26 @@ async function openCaseForm(alertIds) {
 }
 
 /* add one alert to an existing open case */
+function relatedHtml(c) {
+  const rel = c.related || [], sim = c.similar || [];
+  return `<div class="panel"><div class="page-head" style="margin-bottom:8px"><h2 style="margin:0">Related cases</h2><span class="spacer"></span><button class="btn small" data-cact="linkcase">Link case</button></div>
+    ${rel.length ? `<ul class="rel">${rel.map(r => `<li><div><a href="${hashFor('cases', {}, r.id)}">#${r.id} ${esc(r.title)}</a> ${caseStatusHtml(r.status)}${r.note ? `<div class="muted">${esc(r.note)}</div>` : ''}</div><button class="btn ghost small" data-unlinkcase="${r.id}" title="Remove the link" aria-label="Remove link to case ${r.id}">×</button></li>`).join('')}</ul>` : '<p class="muted" style="margin:0">No related cases linked.</p>'}
+    ${sim.length ? `<h3 style="margin:12px 0 4px">Maybe related</h3><ul class="rel">${sim.map(r => `<li><div><a href="${hashFor('cases', {}, r.id)}">#${r.id} ${esc(r.title)}</a> ${caseStatusHtml(r.status)}<div class="muted">${esc(r.basis)}</div></div><button class="btn small" data-linksim="${r.id}">Link</button></li>`).join('')}</ul>` : ''}</div>`;
+}
+
+async function openLinkRelated(c, done) {
+  const cs = (await api('/api/cases/picker?all=1')).filter(x => x.id !== c.id && !(c.related || []).some(r => r.id === x.id));
+  openDrawer('Link a related case', cs.length ? `
+    <label class="field"><span>Case</span><select id="rl-case">${cs.map(x => `<option value="${x.id}">#${x.id} ${esc(x.title)} (${esc(caseStatusLabel(x.status))})</option>`).join('')}</select></label>
+    <label class="field"><span>Why are they related? (optional)</span><input type="text" id="rl-note" maxlength="300" placeholder="Same root cause, duplicate, same component"></label>
+    <p style="margin:0"><button class="btn primary" id="rl-go">Link case</button> <button class="btn" data-act="close-drawer">Cancel</button></p>` : '<p class="muted">There is no other case to link.</p>');
+  const b = $('#rl-go');
+  if (b) b.addEventListener('click', async () => {
+    const other = +$('#rl-case').value;
+    try { await api(`/api/cases/${c.id}/links`, { method: 'POST', json: { case_id: other, note: $('#rl-note').value.trim() } }); closeDrawer(); toast(`Linked to case #${other}`); done(); } catch (e) { toast(e.message, true); }
+  });
+}
+
 async function openLinkCase(alertIds, done) {
   const ids = [].concat(alertIds), many = ids.length > 1;
   const cs = await api('/api/cases/picker');

@@ -34,6 +34,10 @@ Alert and case titles are real links. Right-click and choose "Open in new tab" (
 
 The event list has an "Alert, case" column and two filters, **Alert** (covered / not covered) and **Case** (in a case / not in a case). An alert covers an event when the event lies inside the alert's own filter (vehicle, event type, ECU, time window), the same events you get from "show events" on the alert. An event is "in a case" when one of its covering alerts is linked to that case. The event drawer lists the covering alerts. The link between alerts and events is stored when the detections run (and built once for an existing database on start), so the filters stay fast with hundreds of thousands of events.
 
+## Related cases
+
+A case can be linked to other cases that deal with a similar topic (same root cause, duplicate, same component). Open the case, choose **Link case** under **Related cases**, pick the other case (open or closed) and optionally write why. The link works in both directions, is written to the activity log of both cases and to the audit log, and is listed in the case report. Under **Maybe related** the tool suggests cases with the same event type, the same ECU, the same detection, a shared vehicle or a similar title; nothing is linked until you choose **Link**. The cases list shows a link count (&harr; n) and has a filter for cases with or without related cases. Linked cases are independent: closing one does not change the other.
+
 ## Suggested cases
 
 An alert that is in no case shows **May belong to an existing case** when a case already contains an alert for the same vehicle and event type (for fleet-wide alerts: the same detection) with activity within 30 days of this one. Up to three cases are suggested, open ones first; a closed case is shown with its outcome and has to be reopened before alerts can be added. **Add to case #N** links the alert (analysts and admins; it is written to the audit log). Nothing is ever linked automatically. The alert list shows *maybe #N* in the Case column for new and in-progress alerts with an open suggestion.

@@ -84,6 +84,11 @@ CREATE TABLE IF NOT EXISTS case_alerts(
   case_id INTEGER, alert_id INTEGER UNIQUE, linked_at INTEGER,
   PRIMARY KEY(case_id, alert_id)
 );
+CREATE TABLE IF NOT EXISTS case_links(
+  case_a INTEGER NOT NULL, case_b INTEGER NOT NULL, note TEXT DEFAULT '', created_by TEXT DEFAULT '', created_at INTEGER,
+  PRIMARY KEY(case_a, case_b)
+);
+CREATE INDEX IF NOT EXISTS ix_cl_b ON case_links(case_b);
 CREATE TABLE IF NOT EXISTS case_tasks(
   id INTEGER PRIMARY KEY, case_id INTEGER, title TEXT,
   done INTEGER DEFAULT 0, done_at INTEGER, done_by TEXT DEFAULT '', position INTEGER

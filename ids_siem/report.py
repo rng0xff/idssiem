@@ -100,6 +100,13 @@ def render(cid):
     else:
         parts.append("<p class='muted'>No alerts linked.</p>")
 
+    parts.append("<h2>Related cases</h2>")
+    if d["related"]:
+        parts.append("<table><tr><th>#</th><th>Case</th><th>Status</th><th>Why related</th></tr>" + "".join(
+            row(str(x["id"]), e(x["title"]), e(cases.STATUS_LABEL.get(x["status"], x["status"])), e(x["note"]) or "<span class='muted'>no note</span>") for x in d["related"]) + "</table>")
+    else:
+        parts.append("<p class='muted'>No related cases linked.</p>")
+
     parts.append("<h2>Checklist</h2>")
     if d["tasks"]:
         parts.append("<table><tr><th style='width:28px'></th><th>Step</th><th>Result</th><th style='width:150px'>Done</th></tr>" + "".join(

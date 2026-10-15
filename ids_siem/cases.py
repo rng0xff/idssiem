@@ -4,6 +4,7 @@ A case has an owner, a due date, a task checklist and an activity log. An alert 
 case. Closing a case can resolve its open alerts in one step.
 """
 import datetime
+import re
 import statistics
 
 from . import auth, db
@@ -241,6 +242,7 @@ def delete_case(cid):
     auth.log(auth.current_actor(), "case.delete", f"deleted '{row['title']}' (status {row['status']})", target=f"case:{cid}")
     for t in ("case_tasks", "case_log", "case_alerts"):
         c.execute(f"DELETE FROM {t} WHERE case_id=?", (cid,))
+    c.execute("DELETE FROM case_links WHERE case_a=? OR case_b=?", (cid, cid))
     c.execute("DELETE FROM cases WHERE id=?", (cid,))
     c.commit()
     return {"deleted": cid}
@@ -354,6 +356,114 @@ def unlink_alert(cid, aid):
     return get_case(cid)
 
 
+# ------------------------------------------------------------------ related cases
+NOTE_MAX = 300
+
+
+def link_case(cid, body):
+    """Mark two cases as related (both directions, one shared note)."""
+    c = db.conn()
+    now = db.now_ms()
+    try:
+        other = int(body.get("case_id"))
+    except (TypeError, ValueError):
+        raise ValueError("choose a case to link")
+    if other == cid:
+        raise ValueError("a case cannot be linked to itself")
+    note = str(body.get("note") or "").strip()[:NOTE_MAX]
+    a = _case_or_404(c, cid)
+    b = _case_or_404(c, other)
+    lo, hi = sorted((cid, other))
+    if c.execute("SELECT 1 FROM case_links WHERE case_a=? AND case_b=?", (lo, hi)).fetchone():
+        raise ValueError(f"case #{other} is already linked")
+    try:
+        c.execute("INSERT INTO case_links(case_a, case_b, note, created_by, created_at) VALUES(?,?,?,?,?)", (lo, hi, note, _who(), now))
+        extra = f": {note}" if note else ""
+        _log(c, cid, "system", f"Linked to case #{other} ({b['title']}){extra}", now, author=_who(), action="case.link")
+        _log(c, other, "system", f"Linked to case #{cid} ({a['title']}){extra}", now, author=_who(), action="case.link")
+        c.execute("UPDATE cases SET updated_at=? WHERE id IN (?,?)", (now, cid, other))
+        c.commit()
+    except Exception:
+        c.rollback()
+        raise
+    return get_case(cid)
+
+
+def unlink_case(cid, other):
+    c = db.conn()
+    now = db.now_ms()
+    _case_or_404(c, cid)
+    lo, hi = sorted((cid, other))
+    if not c.execute("SELECT 1 FROM case_links WHERE case_a=? AND case_b=?", (lo, hi)).fetchone():
+        raise NotFound("these cases are not linked")
+    c.execute("DELETE FROM case_links WHERE case_a=? AND case_b=?", (lo, hi))
+    _log(c, cid, "system", f"Link to case #{other} removed", now, author=_who(), action="case.unlink_case")
+    if c.execute("SELECT 1 FROM cases WHERE id=?", (other,)).fetchone():
+        _log(c, other, "system", f"Link to case #{cid} removed", now, author=_who(), action="case.unlink_case")
+    c.commit()
+    return get_case(cid)
+
+
+def related_cases(c, cid):
+    return [dict(r) for r in c.execute(
+        "SELECT cs.id, cs.title, cs.status, cs.severity, cs.resolution, l.note, l.created_by, l.created_at FROM case_links l "
+        "JOIN cases cs ON cs.id = CASE WHEN l.case_a = ? THEN l.case_b ELSE l.case_a END "
+        "WHERE l.case_a = ? OR l.case_b = ? ORDER BY cs.updated_at DESC", (cid, cid, cid))]
+
+
+_WORD = re.compile(r"[A-Za-z0-9_]{4,}")
+
+
+def similar_cases(c, cid, limit=5):
+    """Cases that deal with a similar topic, to be linked by hand. Same event type counts most, then similar title,
+    same ECU, same detection and a shared vehicle. Cases that are already linked are left out."""
+    mine = c.execute("SELECT a.cat_id, a.ecu_name, a.rule, a.vin FROM case_alerts ca JOIN alerts a ON a.id=ca.alert_id WHERE ca.case_id=?", (cid,)).fetchall()
+    cats = {r["cat_id"] for r in mine if r["cat_id"]}
+    ecus = {r["ecu_name"] for r in mine if r["ecu_name"]}
+    rules = {r["rule"] for r in mine if r["rule"]}
+    vins = {r["vin"] for r in mine if r["vin"]}
+    title = c.execute("SELECT title FROM cases WHERE id=?", (cid,)).fetchone()["title"]
+    words = {w.lower() for w in _WORD.findall(title)}
+    linked = {cid} | {r["id"] for r in related_cases(c, cid)}
+    names = {r["id"]: r for r in c.execute("SELECT id, title, status, severity FROM cases ORDER BY updated_at DESC LIMIT 1000")}
+    score, why = {}, {}
+
+    def add(oid, pts, text):
+        if oid in linked or oid not in names:
+            return
+        score[oid] = score.get(oid, 0) + pts
+        why.setdefault(oid, []).append(text)
+    per = {}
+    for r in c.execute("SELECT ca.case_id, a.cat_id, a.ecu_name, a.rule, a.vin FROM case_alerts ca JOIN alerts a ON a.id=ca.alert_id WHERE ca.case_id<>?", (cid,)):
+        p = per.setdefault(r["case_id"], {"cats": set(), "ecus": set(), "rules": set(), "vins": set()})
+        for k, v in (("cats", r["cat_id"]), ("ecus", r["ecu_name"]), ("rules", r["rule"]), ("vins", r["vin"])):
+            if v:
+                p[k].add(v)
+    for oid, p in per.items():
+        if cats & p["cats"]:
+            add(oid, 3, "same event type")
+        if ecus & p["ecus"]:
+            add(oid, 1, "same ECU")
+        if rules & p["rules"]:
+            add(oid, 1, "same detection")
+        if vins & p["vins"]:
+            add(oid, 1, "same vehicle")
+    if words:
+        for oid, r in names.items():
+            ow = {w.lower() for w in _WORD.findall(r["title"])}
+            if oid != cid and ow and len(words & ow) / len(words | ow) >= 0.4:
+                add(oid, 2, "similar title")
+    out = []
+    for oid, pts in sorted(score.items(), key=lambda x: (-x[1], -x[0])):
+        if pts < 3:
+            break
+        r = names[oid]
+        out.append({"id": oid, "title": r["title"], "status": r["status"], "severity": r["severity"], "basis": ", ".join(why[oid])})
+        if len(out) >= limit:
+            break
+    return out
+
+
 # ------------------------------------------------------------------ reading
 def get_case(cid):
     c = db.conn()
@@ -370,6 +480,8 @@ def get_case(cid):
         "WHERE ca.case_id=? AND a.vin IS NOT NULL GROUP BY a.vin ORDER BY alerts DESC, a.vin", (cid,))]
     d["log"] = [dict(x) for x in c.execute("SELECT * FROM case_log WHERE case_id=? ORDER BY created_at DESC, id DESC", (cid,))]
     d["open_alerts"] = sum(1 for a in d["alerts"] if a["status"] in ("new", "in_progress"))
+    d["related"] = related_cases(c, cid)
+    d["similar"] = similar_cases(c, cid)
     d["resolutions"] = RESOLUTIONS
     return d
 
@@ -391,6 +503,8 @@ def list_cases(p):
             w.append("cs.owner = ''")
         else:
             w.append("cs.owner = ?"); a.append(p["owner"][0])
+    if p.get("related") and p["related"][0] in ("any", "none"):
+        w.append(("" if p["related"][0] == "any" else "NOT ") + "EXISTS (SELECT 1 FROM case_links l WHERE l.case_a = cs.id OR l.case_b = cs.id)")
     if p.get("overdue"):
         w.append("cs.status <> 'closed' AND cs.due_date <> '' AND cs.due_date < ?"); a.append(_today())
     q = (p.get("q") or [""])[0].strip()
@@ -408,6 +522,7 @@ def list_cases(p):
     total = c.execute(f"SELECT COUNT(*) FROM cases cs WHERE {where}", a).fetchone()[0]
     rows = c.execute(
         f"SELECT cs.*, (SELECT COUNT(*) FROM case_alerts ca WHERE ca.case_id=cs.id) AS alerts, "
+        f"(SELECT COUNT(*) FROM case_links l WHERE l.case_a=cs.id OR l.case_b=cs.id) AS related, "
         f"(SELECT COUNT(*) FROM case_tasks t WHERE t.case_id=cs.id) AS tasks_total, "
         f"(SELECT COUNT(*) FROM case_tasks t WHERE t.case_id=cs.id AND t.done=1) AS tasks_done "
         f"FROM cases cs WHERE {where} ORDER BY {sort} {d}, cs.updated_at DESC LIMIT ? OFFSET ?", a + [size, (page - 1) * size]).fetchall()
@@ -418,9 +533,10 @@ def list_cases(p):
             "status_counts": counts, "owners": owners}
 
 
-def open_cases_for_picker():
+def open_cases_for_picker(everything=False):
+    where = "" if everything else "WHERE status<>'closed' "
     return [dict(r) for r in db.conn().execute(
-        "SELECT id, title, severity, status FROM cases WHERE status<>'closed' ORDER BY updated_at DESC LIMIT 200")]
+        f"SELECT id, title, severity, status FROM cases {where}ORDER BY updated_at DESC LIMIT 200")]
 
 
 # ------------------------------------------------------------------ dashboard
