@@ -240,6 +240,7 @@ def delete_case(cid):
     c = db.conn()
     row = _case_or_404(c, cid)
     auth.log(auth.current_actor(), "case.delete", f"deleted '{row['title']}' (status {row['status']})", target=f"case:{cid}")
+    c.execute("DELETE FROM task_experts WHERE task_id IN (SELECT id FROM case_tasks WHERE case_id=?)", (cid,))
     for t in ("case_tasks", "case_log", "case_alerts", "case_experts"):
         c.execute(f"DELETE FROM {t} WHERE case_id=?", (cid,))
     c.execute("DELETE FROM case_links WHERE case_a=? OR case_b=?", (cid, cid))
@@ -342,16 +343,28 @@ def update_task(cid, tid, body):
                 verb = ("reopened" if cur == "done" and state == "open" else "reopened and set to ongoing" if cur == "done" and state == "ongoing"
                         else "reopened and set to waiting for a reply on" if cur == "done" else {"ongoing": "started", "waiting": "is waiting for a reply on", "open": "reset to not started"}[state])
                 _log(c, cid, "system", f"{who} {verb} the task: {t['title']}", now, action="case.task")
-    if "expert_id" in body:
-        eid = body["expert_id"]
-        ex = None
-        if eid not in (None, ""):
+    if "expert_ids" in body or "expert_id" in body:
+        want = body["expert_ids"] if "expert_ids" in body else ([body["expert_id"]] if body["expert_id"] not in (None, "") else [])
+        if not isinstance(want, list):
+            raise ValueError("expert_ids must be a list")
+        names = {}
+        for eid in dict.fromkeys(want):
             ex = c.execute("SELECT id, name FROM case_experts WHERE id=? AND case_id=?", (eid, cid)).fetchone()
             if not ex:
                 raise ValueError("that expert is not documented in this case")
-        if (ex["id"] if ex else None) != t["expert_id"]:
-            c.execute("UPDATE case_tasks SET expert_id=? WHERE id=?", (ex["id"] if ex else None, tid))
-            _log(c, cid, "system", f"{who} {'assigned ' + ex['name'] + ' to' if ex else 'removed the expert from'} the task: {t['title']}", now, action="case.task")
+            names[ex["id"]] = ex["name"]
+        have = {r["expert_id"]: r["name"] for r in c.execute(
+            "SELECT te.expert_id, e.name FROM task_experts te JOIN case_experts e ON e.id=te.expert_id WHERE te.task_id=?", (tid,))}
+        for eid in set(have) - set(names):
+            c.execute("DELETE FROM task_experts WHERE task_id=? AND expert_id=?", (tid, eid))
+        for eid in set(names) - set(have):
+            c.execute("INSERT INTO task_experts(task_id, expert_id) VALUES(?,?)", (tid, eid))
+        added = [names[e] for e in names if e not in have]
+        gone = [have[e] for e in have if e not in names]
+        if added:
+            _log(c, cid, "system", f"{who} asked {', '.join(added)} for the task: {t['title']}", now, action="case.task")
+        if gone:
+            _log(c, cid, "system", f"{who} removed {', '.join(gone)} from the task: {t['title']}", now, action="case.task")
     if "title" in body and str(body["title"]).strip():
         c.execute("UPDATE case_tasks SET title=? WHERE id=?", (str(body["title"]).strip()[:200], tid))
     if "result" in body:
@@ -394,6 +407,7 @@ def delete_task(cid, tid):
     t = c.execute("SELECT title FROM case_tasks WHERE id=? AND case_id=?", (tid, cid)).fetchone()
     if not t:
         raise NotFound("task not found")
+    c.execute("DELETE FROM task_experts WHERE task_id=?", (tid,))
     c.execute("DELETE FROM case_tasks WHERE id=?", (tid,))
     _log(c, cid, "system", f"{_who()} removed the task: {t['title']}", now, action="case.task")
     c.commit()
@@ -454,7 +468,7 @@ def delete_expert(cid, eid):
     e = c.execute("SELECT name FROM case_experts WHERE id=? AND case_id=?", (eid, cid)).fetchone()
     if not e:
         raise NotFound("expert not found")
-    c.execute("UPDATE case_tasks SET expert_id=NULL WHERE expert_id=?", (eid,))
+    c.execute("DELETE FROM task_experts WHERE expert_id=?", (eid,))
     c.execute("DELETE FROM case_experts WHERE id=?", (eid,))
     _log(c, cid, "system", f"{_who()} removed the technical expert {e['name']}", now, action="case.expert")
     c.commit()
@@ -619,8 +633,13 @@ def get_case(cid):
     r = _case_or_404(c, cid)
     d = _decorate(dict(r), _today())
     d["tasks"] = [dict(t) for t in c.execute(
-        "SELECT t.*, e.name AS expert_name FROM case_tasks t LEFT JOIN case_experts e ON e.id=t.expert_id WHERE t.case_id=? ORDER BY t.position, t.id", (cid,))]
+        "SELECT * FROM case_tasks WHERE case_id=? ORDER BY position, id", (cid,))]
+    asked = {}
+    for r in c.execute("SELECT te.task_id, e.id, e.name FROM task_experts te JOIN case_experts e ON e.id=te.expert_id WHERE e.case_id=? ORDER BY e.id", (cid,)):
+        asked.setdefault(r["task_id"], []).append({"id": r["id"], "name": r["name"]})
     for t in d["tasks"]:
+        t["experts"] = asked.get(t["id"], [])
+        t["expert_name"] = ", ".join(x["name"] for x in t["experts"])
         t["state"] = t["state"] or ("done" if t["done"] else "open")
     d["tasks_total"] = len(d["tasks"])
     d["tasks_done"] = sum(1 for t in d["tasks"] if t["done"])

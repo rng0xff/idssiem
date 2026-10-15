@@ -770,7 +770,7 @@ def api_reset(h, p):
     if h.json_body().get("confirm") != "DELETE ALL EVENTS":
         raise HttpError(400, "confirmation text missing")
     c = db.conn()
-    for t in ("events", "alert_events", "alerts", "alert_comments", "event_notes", "imports", "cases", "case_alerts", "case_links", "case_tasks", "case_experts", "case_log"):
+    for t in ("events", "alert_events", "alerts", "alert_comments", "event_notes", "imports", "cases", "case_alerts", "case_links", "case_tasks", "case_experts", "task_experts", "case_log"):
         c.execute(f"DELETE FROM {t}")
     c.commit()
     return {"ok": True}
