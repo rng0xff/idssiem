@@ -315,7 +315,7 @@ def sync_default_tasks(body):
 
 
 TASK_RESULT_MAX = 2000
-TASK_STATES = ('open', 'ongoing', 'done')
+TASK_STATES = ('open', 'ongoing', 'waiting', 'done')
 
 
 def update_task(cid, tid, body):
@@ -331,7 +331,7 @@ def update_task(cid, tid, body):
         state = "done" if body["done"] else ("open" if (t["state"] or "open") == "done" else (t["state"] or "open"))
     if state is not None:
         if state not in TASK_STATES:
-            raise ValueError("the status of a task is open, ongoing or done")
+            raise ValueError("the status of a task is open, ongoing, waiting or done")
         cur = t["state"] or ("done" if t["done"] else "open")
         if state != cur:
             if state == "done":
@@ -339,7 +339,8 @@ def update_task(cid, tid, body):
                 _log(c, cid, "system", f"{who} completed the task: {t['title']}", now, action="case.task")
             else:
                 c.execute("UPDATE case_tasks SET state=?, done=0, done_at=NULL, done_by='' WHERE id=?", (state, tid))
-                verb = {("open", "ongoing"): "started", ("ongoing", "open"): "reset to not started", ("done", "open"): "reopened", ("done", "ongoing"): "reopened and set to ongoing"}[(cur, state)]
+                verb = ("reopened" if cur == "done" and state == "open" else "reopened and set to ongoing" if cur == "done" and state == "ongoing"
+                        else "reopened and set to waiting for a reply on" if cur == "done" else {"ongoing": "started", "waiting": "is waiting for a reply on", "open": "reset to not started"}[state])
                 _log(c, cid, "system", f"{who} {verb} the task: {t['title']}", now, action="case.task")
     if "expert_id" in body:
         eid = body["expert_id"]
@@ -624,6 +625,7 @@ def get_case(cid):
     d["tasks_total"] = len(d["tasks"])
     d["tasks_done"] = sum(1 for t in d["tasks"] if t["done"])
     d["tasks_ongoing"] = sum(1 for t in d["tasks"] if t["state"] == "ongoing")
+    d["tasks_waiting"] = sum(1 for t in d["tasks"] if t["state"] == "waiting")
     d["experts"] = [dict(x) for x in c.execute("SELECT * FROM case_experts WHERE case_id=? ORDER BY id", (cid,))]
     d["alerts"] = [dict(a) for a in c.execute(
         "SELECT a.id, a.title, a.severity, a.status, a.vin, a.rule, a.event_count, a.first_ts, a.last_ts, ca.linked_at "

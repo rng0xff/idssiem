@@ -42,7 +42,7 @@ In a case, the panel **Technical experts** documents who you asked, for example 
 
 ### Checklist status and experts
 
-Each checklist step has a status: **Not started**, **Ongoing** or **Completed** (instead of a checkbox). Starting, completing and resetting a step are written to the activity log; the progress bar counts completed steps and the text names the ongoing ones. A step can refer to a documented expert (**Expert** under the step, or **New expert...** to add one on the spot); the expert is shown in the report next to the step. Names are remembered: when you type a name that was used in any case, the tool proposes it and fills in organisation, system or component and contact if those fields are empty. Cases from earlier versions are converted when the server starts (checked steps become Completed).
+Each checklist step has a status: **Not started**, **Ongoing**, **Waiting for reply** (you asked someone and wait for the answer) or **Completed** (instead of a checkbox). Starting, completing and resetting a step are written to the activity log; the progress bar counts completed steps and the text names the ongoing and waiting ones. A step can refer to a documented expert (**Expert** under the step, or **New expert...** to add one on the spot); the expert is shown in the report next to the step. Names are remembered: when you type a name that was used in any case, the tool proposes it and fills in organisation, system or component and contact if those fields are empty. Cases from earlier versions are converted when the server starts (checked steps become Completed).
 
 ## Related cases
 
