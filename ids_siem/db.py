@@ -241,6 +241,14 @@ def now_ms():
     return int(time.time() * 1000)
 
 
+_OLD_DEFAULT_TASKS = [
+    ["Review the linked events and the vehicle history", "Check whether other vehicles show the same pattern",
+     "Assess the impact on TARA threat scenarios and CSMS", "Decide on the response and whether reporting is needed", "Document the findings"],
+    ["Review the linked events and the vehicle history", "Check whether other vehicles show the same pattern", "Confirm with system or component owner",
+     "Assess the impact on TARA threat scenarios and CSMS", "Decide on the response and whether reporting is needed", "Document the findings"],
+]
+
+
 def get_settings():
     c = conn()
     out = json.loads(json.dumps(DEFAULT_SETTINGS))
@@ -257,6 +265,9 @@ def get_settings():
                     out["rules"][rule].update(params)
         else:
             out[r["key"]] = v
+    # a saved checklist that is still an earlier, unedited default moves along with the default
+    if out.get("case_tasks") in _OLD_DEFAULT_TASKS:
+        out["case_tasks"] = list(DEFAULT_SETTINGS["case_tasks"])
     return out
 
 

@@ -34,7 +34,7 @@ Alert and case titles are real links. Right-click and choose "Open in new tab" (
 
 The event list has an "Alert, case" column and two filters, **Alert** (covered / not covered) and **Case** (in a case / not in a case). An alert covers an event when the event lies inside the alert's own filter (vehicle, event type, ECU, time window), the same events you get from "show events" on the alert. An event is "in a case" when one of its covering alerts is linked to that case. The event drawer lists the covering alerts. The link between alerts and events is stored when the detections run (and built once for an existing database on start), so the filters stay fast with hundreds of thousands of events.
 
-Cases created before the checklist was changed keep their old steps. **Data, Settings, Add missing steps to open cases** (administrator) adds the steps of the default list that an open case does not have yet, each one after the step that precedes it in the list, after a confirmation that shows the numbers. Existing steps and results are kept and closed cases are skipped.
+Cases created before the checklist was changed keep their old steps. A saved checklist in the settings that is still an unedited earlier default is replaced by the current default automatically; a list you edited yourself is kept. **Data, Settings, Add missing steps to open cases** (administrator) adds the steps of the default list that an open case does not have yet, each one after the step that precedes it in the list, after a confirmation that shows the numbers. Existing steps and results are kept and closed cases are skipped.
 
 ## Technical experts
 
