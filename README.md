@@ -32,7 +32,7 @@ Alert and case titles are real links. Right-click and choose "Open in new tab" (
 
 ## Alert and case coverage of events
 
-The event list has an "Alert, case" column and two filters, **Alert** (covered / not covered) and **Case** (in a case / not in a case). An alert covers an event when the event lies inside the alert's own filter (vehicle, event type, ECU, time window), the same events you get from "show events" on the alert. An event is "in a case" when one of its covering alerts is linked to that case. The event drawer lists the covering alerts. This is computed live, so it also works for events that were imported before.
+The event list has an "Alert, case" column and two filters, **Alert** (covered / not covered) and **Case** (in a case / not in a case). An alert covers an event when the event lies inside the alert's own filter (vehicle, event type, ECU, time window), the same events you get from "show events" on the alert. An event is "in a case" when one of its covering alerts is linked to that case. The event drawer lists the covering alerts. The link between alerts and events is stored when the detections run (and built once for an existing database on start), so the filters stay fast with hundreds of thousands of events.
 
 ## Suggested cases
 

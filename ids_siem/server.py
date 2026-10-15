@@ -674,6 +674,7 @@ def api_imports(h, p):
 @route("DELETE", r"/api/imports/(\d+)", level=3)
 def api_import_delete(h, p, iid):
     c = db.conn()
+    c.execute("DELETE FROM alert_events WHERE event_id IN (SELECT id FROM events WHERE import_id=?)", (int(iid),))
     n = c.execute("DELETE FROM events WHERE import_id=?", (int(iid),)).rowcount
     c.execute("DELETE FROM imports WHERE id=?", (int(iid),))
     c.commit()
@@ -729,7 +730,7 @@ def api_reset(h, p):
     if h.json_body().get("confirm") != "DELETE ALL EVENTS":
         raise HttpError(400, "confirmation text missing")
     c = db.conn()
-    for t in ("events", "alerts", "alert_comments", "event_notes", "imports", "cases", "case_alerts", "case_tasks", "case_log"):
+    for t in ("events", "alert_events", "alerts", "alert_comments", "event_notes", "imports", "cases", "case_alerts", "case_tasks", "case_log"):
         c.execute(f"DELETE FROM {t}")
     c.commit()
     return {"ok": True}

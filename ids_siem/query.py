@@ -50,30 +50,18 @@ def _to_ms(v, end=False):
     return ms
 
 
-ALERT_MATCH = ("(a.f_vin IS NULL OR a.f_vin = e.vin) AND (a.f_cat IS NULL OR a.f_cat = e.cat_id) "
-               "AND (a.f_ecu IS NULL OR a.f_ecu = e.ecu_name) "
-               "AND (a.f_from IS NULL OR (e.ts_ok = 1 AND e.ts >= CAST(a.f_from AS INTEGER))) "
-               "AND (a.f_to IS NULL OR (e.ts_ok = 1 AND e.ts <= CAST(a.f_to AS INTEGER)))")
-
-
 def _covering(events):
     """Alerts (with their case) whose filter contains each event, added to the events as "alerts"."""
+    by_id = {e["id"]: e for e in events}
     for e in events:
         e["alerts"] = []
-    vins = sorted({e["vin"] for e in events})
-    if not vins:
+    if not by_id:
         return events
-    found = rows("SELECT a.id, a.status, a.severity, a.title, a.f_vin, a.f_cat, a.f_ecu, a.f_from, a.f_to, ca.case_id "
-                 "FROM alerts a LEFT JOIN case_alerts ca ON ca.alert_id = a.id "
-                 f"WHERE a.f_vin IS NULL OR a.f_vin IN ({','.join('?' * len(vins))}) ORDER BY a.sev_num DESC, a.id", vins)
-    for e in events:
-        for a in found:
-            if a["f_vin"] not in (None, e["vin"]) or a["f_cat"] not in (None, e["cat_id"]) or a["f_ecu"] not in (None, e["ecu_name"]):
-                continue
-            if (a["f_from"] is not None or a["f_to"] is not None):
-                if not e["ts_ok"] or (a["f_from"] is not None and e["ts"] < int(a["f_from"])) or (a["f_to"] is not None and e["ts"] > int(a["f_to"])):
-                    continue
-            e["alerts"].append({k: a[k] for k in ("id", "status", "severity", "title", "case_id")})
+    ids = list(by_id)
+    for r in rows("SELECT ae.event_id, a.id, a.status, a.severity, a.title, ca.case_id FROM alert_events ae "
+                  "JOIN alerts a ON a.id = ae.alert_id LEFT JOIN case_alerts ca ON ca.alert_id = a.id "
+                  f"WHERE ae.event_id IN ({','.join('?' * len(ids))}) ORDER BY a.sev_num DESC, a.id", ids):
+        by_id[r["event_id"]]["alerts"].append({k: r[k] for k in ("id", "status", "severity", "title", "case_id")})
     return events
 
 
@@ -120,9 +108,9 @@ def build_where(p):
     # coverage: is the event inside the filter of an alert, and is that alert in a case
     al, cs = one("alert"), one("case")
     if al in ("any", "none"):
-        w.append(("" if al == "any" else "NOT ") + f"EXISTS (SELECT 1 FROM alerts a WHERE {ALERT_MATCH})")
+        w.append(("" if al == "any" else "NOT ") + "EXISTS (SELECT 1 FROM alert_events ae WHERE ae.event_id = e.id)")
     if cs in ("any", "none"):
-        w.append(("" if cs == "any" else "NOT ") + f"EXISTS (SELECT 1 FROM alerts a JOIN case_alerts ca ON ca.alert_id = a.id WHERE {ALERT_MATCH})")
+        w.append(("" if cs == "any" else "NOT ") + "EXISTS (SELECT 1 FROM alert_events ae JOIN case_alerts ca ON ca.alert_id = ae.alert_id WHERE ae.event_id = e.id)")
 
     q = (one("q") or "").strip()
     for m in TOKEN_RE.finditer(q):

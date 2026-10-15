@@ -37,6 +37,10 @@ CREATE INDEX IF NOT EXISTS ix_ev_vin ON events(vin);
 CREATE INDEX IF NOT EXISTS ix_ev_cat ON events(cat_id);
 CREATE INDEX IF NOT EXISTS ix_ev_ecu ON events(ecu_name);
 CREATE INDEX IF NOT EXISTS ix_ev_import ON events(import_id);
+CREATE TABLE IF NOT EXISTS alert_events(
+  event_id INTEGER NOT NULL, alert_id INTEGER NOT NULL, PRIMARY KEY(event_id, alert_id)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS ix_ae_alert ON alert_events(alert_id);
 CREATE TABLE IF NOT EXISTS alerts(
   id INTEGER PRIMARY KEY,
   alert_key TEXT UNIQUE,
@@ -187,12 +191,37 @@ def init():
         c.execute("ALTER TABLE case_tasks ADD COLUMN result TEXT DEFAULT ''")  # what the step found or decided
     if "extra" not in {r["name"] for r in c.execute("PRAGMA table_info(events)")}:
         c.execute("ALTER TABLE events ADD COLUMN extra TEXT")  # backend details (context data, counters), JSON
-    have_a = {r["name"] for r in c.execute("PRAGMA table_xinfo(alerts)")}
-    for col, path in (("f_vin", "vin"), ("f_cat", "cat"), ("f_ecu", "ecu"), ("f_from", "from"), ("f_to", "to")):
-        if col not in have_a:  # the event filter of an alert, readable as a column (needs SQLite 3.31+)
-            c.execute(f"ALTER TABLE alerts ADD COLUMN {col} TEXT GENERATED ALWAYS AS (json_extract(filter, '$.{path}')) VIRTUAL")
-    c.execute("CREATE INDEX IF NOT EXISTS ix_al_fvin ON alerts(f_vin)")
+    if c.execute("SELECT 1 FROM alerts LIMIT 1").fetchone() and not c.execute("SELECT 1 FROM alert_events LIMIT 1").fetchone():
+        for r in c.execute("SELECT id, filter FROM alerts").fetchall():  # database from an earlier version
+            cover_alert(c, r["id"], r["filter"])
     c.commit()
+
+
+def cover_alert(c, alert_id, flt):
+    """Remember which events lie inside the filter of an alert (vehicle, event type, ECU, time window), so the event list can
+    show and filter them without scanning every event for every alert."""
+    c.execute("DELETE FROM alert_events WHERE alert_id=?", (alert_id,))
+    try:
+        f = json.loads(flt) if isinstance(flt, str) else (flt or {})
+    except ValueError:
+        return
+    w, a = [], []
+    for key, col in (("vin", "vin"), ("cat", "cat_id"), ("ecu", "ecu_name")):
+        if f.get(key) not in (None, ""):
+            w.append(f"{col} = ?")
+            a.append(f[key])
+    for key, op in (("from", ">="), ("to", "<=")):
+        if f.get(key) not in (None, ""):
+            try:
+                a.append(int(f[key]))
+            except (TypeError, ValueError):
+                return
+            w.append(f"ts_ok = 1 AND ts {op} ?")
+    if not w:
+        return  # an alert without any filter does not point at particular events
+    # name the index: without statistics the planner may pick the wrong one and scan hundreds of thousands of rows
+    idx = "ix_ev_vin" if f.get("vin") else "ix_ev_cat" if f.get("cat") else "ix_ev_ts"
+    c.execute(f"INSERT OR IGNORE INTO alert_events(event_id, alert_id) SELECT id, ? FROM events INDEXED BY {idx} WHERE {' AND '.join(w)}", [alert_id] + a)
 
 
 def now_ms():

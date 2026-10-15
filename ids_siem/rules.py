@@ -324,7 +324,7 @@ def run_all():
             n = 0
             for a in fn(c, cfg.get(name, {})):
                 n += 1
-                row = c.execute("SELECT id, status, event_count FROM alerts WHERE alert_key=?", (a["key"],)).fetchone()
+                row = c.execute("SELECT id, status, event_count, filter FROM alerts WHERE alert_key=?", (a["key"],)).fetchone()
                 details, flt = json.dumps(a["details"]), json.dumps(a["filter"])
                 hit = _first_match(sups, a["rule"], a["vin"], a["ecu"], a["cat"])
                 if row is None:
@@ -332,6 +332,7 @@ def run_all():
                               "status, details, filter, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                               (a["key"], a["rule"], a["title"], a["severity"], SEV_NUM[a["severity"]], a["vin"], a["ecu"], a["cat"],
                                a["first_ts"], a["last_ts"], a["count"], "suppressed" if hit else "new", details, flt, now, now))
+                    db.cover_alert(c, c.execute("SELECT last_insert_rowid()").fetchone()[0], flt)
                     stats["created"] += 1
                     if hit:
                         stats["suppressed"] += 1
@@ -364,6 +365,8 @@ def run_all():
                               "updated_at=CASE WHEN ? THEN ? ELSE updated_at END WHERE id=?",
                               (a["title"], a["severity"], SEV_NUM[a["severity"]], a["first_ts"], a["last_ts"], a["count"], details, flt, status,
                                1 if changed else 0, now, row["id"]))
+                    if changed or row["filter"] != flt:
+                        db.cover_alert(c, row["id"], flt)
                     if changed:
                         stats["updated"] += 1
             stats["per_rule"][name] = n
