@@ -40,6 +40,10 @@ Cases created before the checklist was changed keep their old steps. A saved che
 
 In a case, the panel **Technical experts** documents who you asked, for example the system or component owner from the checklist (the default checklist has the step "Document the technical experts you consulted" before the impact assessment): name, organisation, system or component, contact, date consulted and what the expert said. Entries can be edited and removed. Every change is written to the activity log of the case and to the audit log, and the experts are listed in the case report.
 
+### Checklist status and experts
+
+Each checklist step has a status: **Not started**, **Ongoing** or **Completed** (instead of a checkbox). Starting, completing and resetting a step are written to the activity log; the progress bar counts completed steps and the text names the ongoing ones. A step can refer to a documented expert (**Expert** under the step, or **New expert...** to add one on the spot); the expert is shown in the report next to the step. Names are remembered: when you type a name that was used in any case, the tool proposes it and fills in organisation, system or component and contact if those fields are empty. Cases from earlier versions are converted when the server starts (checked steps become Completed).
+
 ## Related cases
 
 A case can be linked to other cases that deal with a similar topic (same root cause, duplicate, same component). Open the case, choose **Link case** under **Related cases**, pick the other case (open or closed) and optionally write why. The link works in both directions, is written to the activity log of both cases and to the audit log, and is listed in the case report. Under **Maybe related** the tool suggests cases with the same event type, the same ECU, the same detection, a shared vehicle or a similar title; nothing is linked until you choose **Link**. The cases list shows a link count (&harr; n) and has a filter for cases with or without related cases. Linked cases are independent: closing one does not change the other.

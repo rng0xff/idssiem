@@ -315,6 +315,7 @@ def sync_default_tasks(body):
 
 
 TASK_RESULT_MAX = 2000
+TASK_STATES = ('open', 'ongoing', 'done')
 
 
 def update_task(cid, tid, body):
@@ -325,13 +326,31 @@ def update_task(cid, tid, body):
     if not t:
         raise NotFound("task not found")
     who = _who()
-    if "done" in body and bool(body["done"]) != bool(t["done"]):
-        if body["done"]:
-            c.execute("UPDATE case_tasks SET done=1, done_at=?, done_by=? WHERE id=?", (now, who, tid))
-            _log(c, cid, "system", f"{who} completed the task: {t['title']}", now, action="case.task")
-        else:
-            c.execute("UPDATE case_tasks SET done=0, done_at=NULL, done_by='' WHERE id=?", (tid,))
-            _log(c, cid, "system", f"{who} reopened the task: {t['title']}", now, action="case.task")
+    state = body.get("state")
+    if state is None and "done" in body:  # older clients send a checkbox
+        state = "done" if body["done"] else ("open" if (t["state"] or "open") == "done" else (t["state"] or "open"))
+    if state is not None:
+        if state not in TASK_STATES:
+            raise ValueError("the status of a task is open, ongoing or done")
+        cur = t["state"] or ("done" if t["done"] else "open")
+        if state != cur:
+            if state == "done":
+                c.execute("UPDATE case_tasks SET state='done', done=1, done_at=?, done_by=? WHERE id=?", (now, who, tid))
+                _log(c, cid, "system", f"{who} completed the task: {t['title']}", now, action="case.task")
+            else:
+                c.execute("UPDATE case_tasks SET state=?, done=0, done_at=NULL, done_by='' WHERE id=?", (state, tid))
+                verb = {("open", "ongoing"): "started", ("ongoing", "open"): "reset to not started", ("done", "open"): "reopened", ("done", "ongoing"): "reopened and set to ongoing"}[(cur, state)]
+                _log(c, cid, "system", f"{who} {verb} the task: {t['title']}", now, action="case.task")
+    if "expert_id" in body:
+        eid = body["expert_id"]
+        ex = None
+        if eid not in (None, ""):
+            ex = c.execute("SELECT id, name FROM case_experts WHERE id=? AND case_id=?", (eid, cid)).fetchone()
+            if not ex:
+                raise ValueError("that expert is not documented in this case")
+        if (ex["id"] if ex else None) != t["expert_id"]:
+            c.execute("UPDATE case_tasks SET expert_id=? WHERE id=?", (ex["id"] if ex else None, tid))
+            _log(c, cid, "system", f"{who} {'assigned ' + ex['name'] + ' to' if ex else 'removed the expert from'} the task: {t['title']}", now, action="case.task")
     if "title" in body and str(body["title"]).strip():
         c.execute("UPDATE case_tasks SET title=? WHERE id=?", (str(body["title"]).strip()[:200], tid))
     if "result" in body:
@@ -434,10 +453,20 @@ def delete_expert(cid, eid):
     e = c.execute("SELECT name FROM case_experts WHERE id=? AND case_id=?", (eid, cid)).fetchone()
     if not e:
         raise NotFound("expert not found")
+    c.execute("UPDATE case_tasks SET expert_id=NULL WHERE expert_id=?", (eid,))
     c.execute("DELETE FROM case_experts WHERE id=?", (eid,))
     _log(c, cid, "system", f"{_who()} removed the technical expert {e['name']}", now, action="case.expert")
     c.commit()
     return get_case(cid)
+
+
+def known_experts():
+    """Experts named in any case, one per name (the most recent entry wins), so a name typed once is proposed next time."""
+    c = db.conn()
+    rows = c.execute("SELECT name, organisation, area, contact, COUNT(*) OVER (PARTITION BY lower(name)) AS n, "
+                     "ROW_NUMBER() OVER (PARTITION BY lower(name) ORDER BY id DESC) AS rn FROM case_experts").fetchall()
+    out = [{"name": r["name"], "organisation": r["organisation"], "area": r["area"], "contact": r["contact"], "cases": r["n"]} for r in rows if r["rn"] == 1]
+    return sorted(out, key=lambda x: (-x["cases"], x["name"].lower()))
 
 
 # ------------------------------------------------------------------ alerts of a case
@@ -588,9 +617,13 @@ def get_case(cid):
     c = db.conn()
     r = _case_or_404(c, cid)
     d = _decorate(dict(r), _today())
-    d["tasks"] = [dict(t) for t in c.execute("SELECT * FROM case_tasks WHERE case_id=? ORDER BY position, id", (cid,))]
+    d["tasks"] = [dict(t) for t in c.execute(
+        "SELECT t.*, e.name AS expert_name FROM case_tasks t LEFT JOIN case_experts e ON e.id=t.expert_id WHERE t.case_id=? ORDER BY t.position, t.id", (cid,))]
+    for t in d["tasks"]:
+        t["state"] = t["state"] or ("done" if t["done"] else "open")
     d["tasks_total"] = len(d["tasks"])
     d["tasks_done"] = sum(1 for t in d["tasks"] if t["done"])
+    d["tasks_ongoing"] = sum(1 for t in d["tasks"] if t["state"] == "ongoing")
     d["experts"] = [dict(x) for x in c.execute("SELECT * FROM case_experts WHERE case_id=? ORDER BY id", (cid,))]
     d["alerts"] = [dict(a) for a in c.execute(
         "SELECT a.id, a.title, a.severity, a.status, a.vin, a.rule, a.event_count, a.first_ts, a.last_ts, ca.linked_at "

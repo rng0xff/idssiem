@@ -204,6 +204,12 @@ def init():
         c.execute("ALTER TABLE case_tasks ADD COLUMN result TEXT DEFAULT ''")  # what the step found or decided
     if "extra" not in {r["name"] for r in c.execute("PRAGMA table_info(events)")}:
         c.execute("ALTER TABLE events ADD COLUMN extra TEXT")  # backend details (context data, counters), JSON
+    ct = {r["name"] for r in c.execute("PRAGMA table_info(case_tasks)")}
+    if "state" not in ct:
+        c.execute("ALTER TABLE case_tasks ADD COLUMN state TEXT DEFAULT 'open'")  # open (not started), ongoing, done
+        c.execute("UPDATE case_tasks SET state='done' WHERE done=1")  # cases from an earlier version
+    if "expert_id" not in ct:
+        c.execute("ALTER TABLE case_tasks ADD COLUMN expert_id INTEGER")  # the technical expert a step refers to
     if c.execute("SELECT 1 FROM alerts LIMIT 1").fetchone() and not c.execute("SELECT 1 FROM alert_events LIMIT 1").fetchone():
         for r in c.execute("SELECT id, filter FROM alerts").fetchall():  # database from an earlier version
             cover_alert(c, r["id"], r["filter"])

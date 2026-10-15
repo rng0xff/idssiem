@@ -5,6 +5,9 @@ from html import escape as e
 from . import auth, cases, db, vin as vinmod
 
 
+_TSTATE = {'done': '&#9745; completed', 'ongoing': '&#9654; ongoing'}
+
+
 def _t(ms, day=False):
     if not ms:
         return "no valid time"
@@ -65,7 +68,7 @@ def render(cid):
           ("Closed", _t(d["closed_at"]) if d["closed_at"] else '<span class="muted">still open</span>'),
           ("Resolution", e(d["resolution_label"]) if d["resolution_label"] else '<span class="muted">none yet</span>'),
           ("Age", f"{d['age_days']} days"),
-          ("Checklist", f"{d['tasks_done']} of {d['tasks_total']} done"),
+          ("Checklist", f"{d['tasks_done']} of {d['tasks_total']} done" + (f", {d['tasks_ongoing']} ongoing" if d.get("tasks_ongoing") else "")),
           ("Alerts", f"{len(d['alerts'])} linked, {d['open_alerts']} still open"),
           ("Vehicles", str(len(veh)) or "0")]
 
@@ -109,8 +112,8 @@ def render(cid):
 
     parts.append("<h2>Checklist</h2>")
     if d["tasks"]:
-        parts.append("<table><tr><th style='width:28px'></th><th>Step</th><th>Result</th><th style='width:150px'>Done</th></tr>" + "".join(
-            f"<tr><td>{'&#9745;' if t['done'] else '&#9744;'}</td><td>{e(t['title'])}</td>"
+        parts.append("<table><tr><th style='width:80px'>Status</th><th>Step</th><th>Expert</th><th>Result</th><th style='width:150px'>Done</th></tr>" + "".join(
+            f"<tr><td>{_TSTATE.get(t['state'], '&#9744; not started')}</td><td>{e(t['title'])}</td><td>{e(t.get('expert_name') or '')}</td>"
             f"<td>{_text(t['result']) if t.get('result') else '<span class=muted>no result recorded</span>'}</td>"
             f"<td>{(e(t['done_by']) + ', ' + _t(t['done_at'])) if t['done'] else ''}</td></tr>" for t in d["tasks"]) + "</table>")
     else:

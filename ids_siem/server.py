@@ -622,6 +622,11 @@ def api_case_task_delete(h, p, cid, tid):
     return _case_call(cases.delete_task, int(cid), int(tid))
 
 
+@route("GET", "/api/experts")
+def api_experts(h, p):
+    return cases.known_experts()
+
+
 @route("POST", "/api/cases/sync-tasks", level=3)
 def api_case_sync_tasks(h, p):
     return _case_call(cases.sync_default_tasks, h.json_body())
