@@ -1,4 +1,4 @@
-# Fleet IDS: a local SIEM for vehicle IDS events
+# Fleet IDS SIEM: a local SIEM for vehicle IDS events
 
 Runs on your machine, nothing leaves it. The look follows the INEOS TARA Workbench (light and dark theme, INEOS logo). Python 3.9+ and the standard library; `openpyxl` is only needed for Excel imports.
 

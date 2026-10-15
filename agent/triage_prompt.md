@@ -1,4 +1,4 @@
-Triage the open alerts in Fleet IDS with the fleet-ids tools.
+Triage the open alerts in Fleet IDS SIEM with the fleet-ids tools.
 
 1. Call list_alerts for status new and in_progress, highest severity first, at most 20 alerts. Skip alerts that already have a note starting with "[AI agent]" unless their event count has grown since.
 2. For each alert: get_alert, alert_events (about 10 events), get_event for one or two of them, get_vehicle for the vehicle, and look at any suggested case.

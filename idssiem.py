@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Start the IDS SIEM:  python idssiem.py [--port 8765] [--import FILE ...]"""
+"""Start Fleet IDS SIEM:  python idssiem.py [--port 8765] [--import FILE ...]"""
 import argparse
 import os
 import sys

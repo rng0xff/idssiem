@@ -20,7 +20,7 @@ from urllib.parse import quote
 
 from . import auth, db, qr, webauthn as wa
 
-ISSUER = "Fleet IDS"
+ISSUER = "Fleet IDS SIEM"
 RP_ID = "localhost"
 LOGIN_TTL_MS = 5 * 60000
 CHALLENGE_TTL_MS = 2 * 60000

@@ -3,7 +3,7 @@
     {
       "type": "promptString",
       "id": "ids-siem-token",
-      "description": "Fleet IDS API token (Account page). Start with a view token.",
+      "description": "Fleet IDS SIEM API token (Account page). Start with a view token.",
       "password": true
     }
   ],

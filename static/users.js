@@ -11,7 +11,7 @@ const stateHtml = s => `<span class="status ${s === 'active' ? 'resolved' : s ==
 async function boot() {
   let st;
   try { st = await api('/api/auth/status'); }
-  catch (e) { document.body.classList.add('locked'); $('#auth').innerHTML = `<div class="authbox"><h1>Fleet IDS</h1><p class="note err">${esc(e.message)}</p></div>`; return; }
+  catch (e) { document.body.classList.add('locked'); $('#auth').innerHTML = `<div class="authbox"><h1>Fleet IDS SIEM</h1><p class="note err">${esc(e.message)}</p></div>`; return; }
   if (st.user) startSession(st.user); else showAuth(st.setup_needed);
 }
 
@@ -21,7 +21,7 @@ function showAuth(setup, msg) {
   document.body.classList.add('locked');
   closeDrawer();
   $('#auth').innerHTML = `<form class="authbox" id="authform" autocomplete="on">
-    <img class="logo" alt="INEOS" src="/assets/ineos-logo.png"><h1>Fleet IDS</h1>
+    <img class="logo" alt="INEOS" src="/assets/ineos-logo.png"><h1>Fleet IDS SIEM</h1>
     ${setup ? '<p class="muted" style="margin-top:0">Nobody has an account yet. Create the first administrator. You can add analysts and viewers afterwards.</p>' : ''}
     ${msg ? `<p class="note" role="alert">${esc(msg)}</p>` : ''}
     <label class="field"><span>Username</span><input type="text" id="au-user" autocomplete="username" required autofocus></label>

@@ -74,7 +74,7 @@ def render(cid):
              "<div class='bar'><button id='print' type='button'>Print or save as PDF</button><span class='muted'>Use the print dialog and choose Save as PDF.</span></div>",
              "<main>",
              f"<h1>Case #{d['id']}: {e(d['title'])}</h1>",
-             f"<p class='sub'>Fleet IDS case report. Created {_t(now)} by {e(who)}. All times are UTC.</p>",
+             f"<p class='sub'>Fleet IDS SIEM case report. Created {_t(now)} by {e(who)}. All times are UTC.</p>",
              "<table class='kv'>" + "".join(f"<tr><th>{k}</th><td>{v}</td></tr>" for k, v in kv) + "</table>",
              "<h2>Summary</h2><div class='box'>" + (_text(d["summary"]) or "<span class='muted'>No summary written.</span>") + "</div>",
              "<h2>Findings and decision</h2><div class='box'>" + (_text(d["findings"]) or "<span class='muted'>No findings recorded.</span>") + "</div>"]
@@ -115,6 +115,6 @@ def render(cid):
                  "".join(row(_t(x["created_at"]), e(x["author"]), _text(x["body"])) for x in log) + "</table>" if log else "<p class='muted'>No activity.</p>")
 
     parts.append(f"<div class='foot'>Case #{d['id']}, report generated {_t(now)} by {e(who)}. Vehicle details decoded with INEOS Grenadier VIN decoder Corp-P2-ENG-0128 rev 001. "
-                 f"The case record itself is in the local Fleet IDS database; changes to it are in the audit log.</div></main><script src='/print.js'></script></body></html>")
+                 f"The case record itself is in the local Fleet IDS SIEM database; changes to it are in the audit log.</div></main><script src='/print.js'></script></body></html>")
     auth.log(auth.current_actor(), "case.report", "report generated", target=f"case:{cid}")
     return "".join(parts)

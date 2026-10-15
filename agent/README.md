@@ -1,6 +1,6 @@
-# AI agent support for Fleet IDS
+# AI agent support for Fleet IDS SIEM
 
-`mcp_server.py` lets an AI agent (Claude Code, the Claude desktop app, or any client that speaks the Model Context Protocol) analyse the data in Fleet IDS. It runs on your computer, talks to the running app through its API with an API token, and needs only Python (no packages).
+`mcp_server.py` lets an AI agent (Claude Code, the Claude desktop app, or any client that speaks the Model Context Protocol) analyse the data in Fleet IDS SIEM. It runs on your computer, talks to the running app through its API with an API token, and needs only Python (no packages).
 
 ## What the agent can do
 
@@ -15,7 +15,7 @@ It cannot change an alert's status, link alerts to cases, create, close or delet
 
 ## Set up
 
-1. Start Fleet IDS. Sign in, open **Account**, create an API token. Name it for the agent. Start with **view**; use **modify** once you want notes written. Give it a short lifetime (30 days).
+1. Start Fleet IDS SIEM. Sign in, open **Account**, create an API token. Name it for the agent. Start with **view**; use **modify** once you want notes written. Give it a short lifetime (30 days).
 2. Add the server to your client.
 
    Claude Code:

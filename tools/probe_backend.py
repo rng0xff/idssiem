@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Collect facts about the CycurGUARD backend's answers, to check how the Fleet IDS tool reads them.
+"""Collect facts about the CycurGUARD backend's answers, to check how the Fleet IDS SIEM tool reads them.
 
 Standard library only. Read-only (version, count and search calls). The token is never printed or written.
 

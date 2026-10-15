@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""MCP server that lets an AI agent analyse Fleet IDS through its REST API. Standard library only.
+"""MCP server that lets an AI agent analyse Fleet IDS SIEM through its REST API. Standard library only.
 
     IDS_SIEM_URL    address of the running app (default http://127.0.0.1:8765)
     IDS_SIEM_TOKEN  an API token created on the Account page
@@ -193,7 +193,7 @@ def call_tool(name, args):
     if name not in TOOL_MAP:
         raise ToolError(f"Unknown tool {name}")
     if not TOKEN:
-        raise ToolError("IDS_SIEM_TOKEN is not set. Create an API token on the Account page of Fleet IDS.")
+        raise ToolError("IDS_SIEM_TOKEN is not set. Create an API token on the Account page of Fleet IDS SIEM.")
     out = TOOL_MAP[name][5](args or {})
     text = json.dumps(out, ensure_ascii=False, indent=1, default=str)
     if len(text) > MAX_CHARS:

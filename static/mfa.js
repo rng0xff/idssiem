@@ -85,7 +85,7 @@ function wireRecovery(box, codes) {
   if (c) c.addEventListener('click', async () => { try { await navigator.clipboard.writeText(codes.join('\n')); toast('Codes copied'); } catch (_) { toast('Select the codes and copy them by hand', true); } });
   if (d) d.addEventListener('click', () => {
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([`Fleet IDS recovery codes for ${ME.username}\n\n${codes.join('\n')}\n`], { type: 'text/plain' }));
+    a.href = URL.createObjectURL(new Blob([`Fleet IDS SIEM recovery codes for ${ME.username}\n\n${codes.join('\n')}\n`], { type: 'text/plain' }));
     a.download = 'fleet-ids-recovery-codes.txt'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   });
 }
