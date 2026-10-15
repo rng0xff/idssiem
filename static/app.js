@@ -78,7 +78,12 @@ function sortHeader(label, key, cur, dir, cls = '') {
   return `<th class="sortable ${cls}" data-sort="${key}">${label}${cur === key ? ` <span class="dir">${dir === 'asc' ? '▲' : '▼'}</span>` : ''}</th>`;
 }
 // stop row-click when a link inside a clickable row is used
-document.addEventListener('click', e => { if (e.target.closest('[data-stop]')) e.stopPropagation(); }, true);
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-stop]')) e.stopPropagation();
+  const l = e.target.closest('a.rowlink');
+  if (l) { if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button === 1) e.stopPropagation(); else e.preventDefault(); }
+}, true);
+document.addEventListener('auxclick', e => { if (e.target.closest('a.rowlink')) e.stopPropagation(); }, true);
 
 /* ---------------------------------------------------------------- overview */
 ROUTES.overview = async function () {
@@ -372,7 +377,7 @@ ROUTES.vehicle = async function (vin) {
   <div class="grid2">
     <div class="panel"><h2>What this vehicle reported</h2><div class="tablewrap"><table><thead><tr><th>Event</th><th>ECU</th><th class="num">Count</th><th>Last seen</th></tr></thead><tbody>
       ${v.by_event.map(r => `<tr class="row" data-go="${hashFor('events', { vin, cat: r.cat_id, ...(r.ecu_name ? { ecu: r.ecu_name } : {}) })}"><td>${sevHtml(r.severity)} ${esc(r.short_name)}</td><td>${esc(r.ecu_name) || '<span class="muted">none</span>'}</td><td class="num">${fmtN(r.n)}</td><td class="nowrap">${fmtDay(r.last_ts)}</td></tr>`).join('')}</tbody></table></div></div>
-    <div class="panel"><h2>Alerts</h2>${v.alerts.length ? `<div class="tablewrap"><table><tbody>${v.alerts.map(a => `<tr class="row" data-go="#/alerts/${a.id}"><td>${sevHtml(a.severity)}</td><td>${esc(a.title)}</td><td>${statusHtml(a.status)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">No alerts for this vehicle</div>'}</div>
+    <div class="panel"><h2>Alerts</h2>${v.alerts.length ? `<div class="tablewrap"><table><tbody>${v.alerts.map(a => `<tr class="row" data-go="#/alerts/${a.id}"><td>${sevHtml(a.severity)}</td><td><a class="rowlink" href="#/alerts/${a.id}">${esc(a.title)}</a></td><td>${statusHtml(a.status)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">No alerts for this vehicle</div>'}</div>
   </div>`;
   renderTimeline($('#tl'), t, { onSelect: (a, b) => { location.hash = hashFor('events', { vin, from: a, to: b }); } });
   view.onclick = e => { const r = e.target.closest('[data-go]'); if (r) location.hash = r.dataset.go; };
@@ -402,7 +407,7 @@ ROUTES.alerts = async function (arg, P) {
     const sc = res.status_counts, cnt = k => k === 'all' ? Object.values(sc).reduce((a, b) => a + b, 0) : k === 'open' ? (sc.new || 0) + (sc.in_progress || 0) : (sc[k] || 0);
     $('#tabs').innerHTML = TABS.map(t => `<button data-tab="${t[0]}" class="${t[0] === tab ? 'on' : ''}">${t[1]}<span class="ct">${fmtN(cnt(t[0]))}</span></button>`).join('');
     $('#alist').innerHTML = res.alerts.length ? `<div class="tablewrap"><table><thead><tr><th><input type="checkbox" id="chkall" aria-label="Select all"></th>${sortHeader('Severity', 'severity', sort, dir)}<th>Alert</th><th>Detection</th><th>Vehicle</th><th>Case</th>${sortHeader('Events', 'events', sort, dir, 'num')}${sortHeader('Last event', 'last', sort, dir)}${sortHeader('Status', 'status', sort, dir)}<th>Assignee</th></tr></thead><tbody>
-      ${res.alerts.map(a => `<tr class="row" data-aid="${a.id}"><td><input type="checkbox" class="chk" value="${a.id}" aria-label="Select alert ${a.id}"></td><td>${sevHtml(a.severity)}</td><td>${esc(a.title)}</td><td class="muted">${esc(a.rule_title)}</td><td class="mono">${a.vin ? esc(a.vin) : '<span class="muted">fleet</span>'}</td><td>${a.case_id ? `<a href="#/cases/${a.case_id}" data-stop>#${a.case_id}</a>` : a.suggested_case ? `<span class="muted">maybe </span><a href="#/cases/${a.suggested_case}" data-stop>#${a.suggested_case}</a>` : '<span class="muted">none</span>'}</td><td class="num">${fmtN(a.event_count)}</td><td class="nowrap">${fmtDay(a.last_ts) || '<span class="muted">none</span>'}</td><td>${statusHtml(a.status)}</td><td>${esc(a.assignee)}</td></tr>`).join('')}</tbody></table></div>${pagerHtml(res.total, res.page, res.size)}`
+      ${res.alerts.map(a => `<tr class="row" data-aid="${a.id}"><td><input type="checkbox" class="chk" value="${a.id}" aria-label="Select alert ${a.id}"></td><td>${sevHtml(a.severity)}</td><td><a class="rowlink" href="${hashFor('alerts', {}, a.id)}">${esc(a.title)}</a></td><td class="muted">${esc(a.rule_title)}</td><td class="mono">${a.vin ? esc(a.vin) : '<span class="muted">fleet</span>'}</td><td>${a.case_id ? `<a href="#/cases/${a.case_id}" data-stop>#${a.case_id}</a>` : a.suggested_case ? `<span class="muted">maybe </span><a href="#/cases/${a.suggested_case}" data-stop>#${a.suggested_case}</a>` : '<span class="muted">none</span>'}</td><td class="num">${fmtN(a.event_count)}</td><td class="nowrap">${fmtDay(a.last_ts) || '<span class="muted">none</span>'}</td><td>${statusHtml(a.status)}</td><td>${esc(a.assignee)}</td></tr>`).join('')}</tbody></table></div>${pagerHtml(res.total, res.page, res.size)}`
       : `<div class="panel"><div class="empty"><b>${tab === 'open' ? 'No open alerts' : 'No alerts here'}</b>${tab === 'open' ? 'Detections run automatically after every import.' : 'Change the tab or filters.'}</div></div>`;
   };
   await load();

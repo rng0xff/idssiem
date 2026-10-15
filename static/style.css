@@ -323,3 +323,6 @@ body.locked #auth { display: flex; min-height: 100vh; align-items: center; justi
 .tasklist .taskres { flex: 0 0 100%; margin: 0 0 0 26px; width: calc(100% - 26px); box-sizing: border-box; font: inherit; font-size: 13px; padding: 4px 8px; resize: vertical; min-height: 28px; background: transparent; border: 1px solid transparent; border-radius: 4px; }
 .tasklist .taskres:hover, .tasklist .taskres:focus { border-color: var(--line); background: var(--panel, transparent); }
 .tasklist li.done .taskres { text-decoration: none; }
+
+.rowlink { color: inherit; }
+.rowlink:hover { text-decoration: underline; }
