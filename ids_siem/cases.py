@@ -240,7 +240,7 @@ def delete_case(cid):
     c = db.conn()
     row = _case_or_404(c, cid)
     auth.log(auth.current_actor(), "case.delete", f"deleted '{row['title']}' (status {row['status']})", target=f"case:{cid}")
-    for t in ("case_tasks", "case_log", "case_alerts"):
+    for t in ("case_tasks", "case_log", "case_alerts", "case_experts"):
         c.execute(f"DELETE FROM {t} WHERE case_id=?", (cid,))
     c.execute("DELETE FROM case_links WHERE case_a=? OR case_b=?", (cid, cid))
     c.execute("DELETE FROM cases WHERE id=?", (cid,))
@@ -339,6 +339,66 @@ def delete_task(cid, tid):
         raise NotFound("task not found")
     c.execute("DELETE FROM case_tasks WHERE id=?", (tid,))
     _log(c, cid, "system", f"{_who()} removed the task: {t['title']}", now, action="case.task")
+    c.commit()
+    return get_case(cid)
+
+
+# ------------------------------------------------------------------ technical experts
+def _expert_fields(body, partial=False):
+    out = {}
+    lim = {"name": 120, "organisation": 120, "area": 200, "contact": 200, "input": 3000}
+    for k, n in lim.items():
+        if k in body or not partial:
+            out[k] = str(body.get(k) or "").strip()[:n]
+    if "consulted_on" in body or not partial:
+        d = str(body.get("consulted_on") or "").strip()
+        if d and not _valid_date(d):
+            raise ValueError("consulted on must be a date like 2026-10-15")
+        out["consulted_on"] = d
+    if "name" in out and not out["name"]:
+        raise ValueError("an expert needs a name")
+    return out
+
+
+def add_expert(cid, body):
+    f = _expert_fields(body)
+    c = db.conn()
+    now = db.now_ms()
+    _case_or_404(c, cid)
+    c.execute("INSERT INTO case_experts(case_id, name, organisation, area, contact, consulted_on, input, created_by, created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+              (cid, f["name"], f["organisation"], f["area"], f["contact"], f["consulted_on"], f["input"], _who(), now))
+    _log(c, cid, "system", f"{_who()} documented the technical expert {f['name']}" + (f" ({f['area']})" if f["area"] else ""), now, action="case.expert")
+    c.execute("UPDATE cases SET updated_at=? WHERE id=?", (now, cid))
+    c.commit()
+    return get_case(cid)
+
+
+def update_expert(cid, eid, body):
+    c = db.conn()
+    now = db.now_ms()
+    _case_or_404(c, cid)
+    e = c.execute("SELECT * FROM case_experts WHERE id=? AND case_id=?", (eid, cid)).fetchone()
+    if not e:
+        raise NotFound("expert not found")
+    f = _expert_fields(body, partial=True)
+    changed = [k for k, v in f.items() if v != (e[k] or "")]
+    if changed:
+        c.execute("UPDATE case_experts SET " + ", ".join(f"{k}=?" for k in f) + " WHERE id=?", (*f.values(), eid))
+        _log(c, cid, "system", f"{_who()} updated the technical expert {f.get('name', e['name'])} ({', '.join(x.replace('_', ' ') for x in changed)})", now, action="case.expert")
+        c.execute("UPDATE cases SET updated_at=? WHERE id=?", (now, cid))
+        c.commit()
+    return get_case(cid)
+
+
+def delete_expert(cid, eid):
+    c = db.conn()
+    now = db.now_ms()
+    _case_or_404(c, cid)
+    e = c.execute("SELECT name FROM case_experts WHERE id=? AND case_id=?", (eid, cid)).fetchone()
+    if not e:
+        raise NotFound("expert not found")
+    c.execute("DELETE FROM case_experts WHERE id=?", (eid,))
+    _log(c, cid, "system", f"{_who()} removed the technical expert {e['name']}", now, action="case.expert")
     c.commit()
     return get_case(cid)
 
@@ -494,6 +554,7 @@ def get_case(cid):
     d["tasks"] = [dict(t) for t in c.execute("SELECT * FROM case_tasks WHERE case_id=? ORDER BY position, id", (cid,))]
     d["tasks_total"] = len(d["tasks"])
     d["tasks_done"] = sum(1 for t in d["tasks"] if t["done"])
+    d["experts"] = [dict(x) for x in c.execute("SELECT * FROM case_experts WHERE case_id=? ORDER BY id", (cid,))]
     d["alerts"] = [dict(a) for a in c.execute(
         "SELECT a.id, a.title, a.severity, a.status, a.vin, a.rule, a.event_count, a.first_ts, a.last_ts, ca.linked_at "
         "FROM case_alerts ca JOIN alerts a ON a.id=ca.alert_id WHERE ca.case_id=? ORDER BY a.sev_num DESC, a.id", (cid,))]

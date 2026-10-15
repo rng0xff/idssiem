@@ -34,6 +34,10 @@ Alert and case titles are real links. Right-click and choose "Open in new tab" (
 
 The event list has an "Alert, case" column and two filters, **Alert** (covered / not covered) and **Case** (in a case / not in a case). An alert covers an event when the event lies inside the alert's own filter (vehicle, event type, ECU, time window), the same events you get from "show events" on the alert. An event is "in a case" when one of its covering alerts is linked to that case. The event drawer lists the covering alerts. The link between alerts and events is stored when the detections run (and built once for an existing database on start), so the filters stay fast with hundreds of thousands of events.
 
+## Technical experts
+
+In a case, the panel **Technical experts** documents who you asked, for example the system or component owner from the checklist step: name, organisation, system or component, contact, date consulted and what the expert said. Entries can be edited and removed. Every change is written to the activity log of the case and to the audit log, and the experts are listed in the case report.
+
 ## Related cases
 
 A case can be linked to other cases that deal with a similar topic (same root cause, duplicate, same component). Open the case, choose **Link case** under **Related cases**, pick the other case (open or closed) and optionally write why. The link works in both directions, is written to the activity log of both cases and to the audit log, and is listed in the case report. Under **Maybe related** the tool suggests cases with the same event type, the same ECU, the same detection, a shared vehicle or a similar title; nothing is linked until you choose **Link**. The cases list shows a link count (&harr; n) and has a filter for cases with or without related cases. Linked cases are independent: closing one does not change the other.

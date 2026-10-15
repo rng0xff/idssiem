@@ -160,6 +160,7 @@ async function viewCase(id, keepScroll = false) {
         <p class="muted" style="margin:6px 0 0">${c.tasks_done} of ${c.tasks_total} done</p>
         <ul class="tasklist">${c.tasks.map(t => `<li class="${t.done ? 'done' : ''}" data-tid="${t.id}"><span class="grip" title="Drag to change the order" aria-hidden="true">&#8942;&#8942;</span><input type="checkbox" data-task="${t.id}" ${t.done ? 'checked' : ''} aria-label="${esc(t.title)}"><span class="tt">${esc(t.title)}</span>${t.done ? `<span class="who">${esc(t.done_by)}, ${esc(fmtDay(t.done_at))}</span>` : ''}<button class="btn ghost small mv" data-mv="-1" data-tid="${t.id}" title="Move up" aria-label="Move up: ${esc(t.title)}">&#9650;</button><button class="btn ghost small mv" data-mv="1" data-tid="${t.id}" title="Move down" aria-label="Move down: ${esc(t.title)}">&#9660;</button><button class="btn ghost small" data-deltask="${t.id}" title="Remove task" aria-label="Remove task">×</button><textarea class="taskres" data-tres="${t.id}" rows="${t.result ? Math.min(6, Math.max(2, t.result.split('\n').length)) : 1}" maxlength="2000" spellcheck="false" placeholder="Result: what did you find or decide?" aria-label="Result of: ${esc(t.title)}">${esc(t.result || '')}</textarea></li>`).join('') || '<li class="muted">No tasks yet.</li>'}</ul>
         <div class="addrow"><input type="text" id="newtask" placeholder="Add a task" aria-label="New task"><button class="btn" data-cact="addtask">Add task</button></div></div>
+      ${expertsHtml(c)}
       <div class="panel"><div class="page-head" style="margin-bottom:8px"><h2 style="margin:0">Linked alerts</h2><span class="sub">${c.alerts.length} alert${c.alerts.length === 1 ? '' : 's'}, ${c.open_alerts} still open</span><span class="spacer"></span>${closed ? '' : '<button class="btn small" data-cact="addalerts">Add alerts</button>'}</div>
         ${c.alerts.length ? `<div class="tablewrap"><table><thead><tr><th>Severity</th><th>Alert</th><th>Vehicle</th><th class="num">Events</th><th>Status</th><th></th></tr></thead><tbody>${c.alerts.map(a => `<tr class="row" data-goto="${hashFor('alerts', {}, a.id)}"><td>${sevHtml(a.severity)}</td><td><a class="rowlink" href="${hashFor('alerts', {}, a.id)}">${esc(a.title)}</a></td><td class="mono">${a.vin ? `<a href="${hashFor('vehicle', {}, a.vin)}" data-stop>${esc(a.vin)}</a>` : '<span class="muted">fleet</span>'}</td><td class="num">${fmtN(a.event_count)}</td><td>${statusHtml(a.status)}</td><td><button class="btn ghost small" data-unlink="${a.id}" title="Remove from case" aria-label="Remove alert from case">×</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">No alerts linked.</div>'}</div>
       <div class="panel"><h2>Activity</h2><textarea id="newcomment" rows="3" placeholder="Add a note: what you checked, what you found, who you talked to"></textarea>
@@ -217,6 +218,9 @@ async function viewCase(id, keepScroll = false) {
     if (mv) { const ids = taskIds(), i = ids.indexOf(+mv.dataset.tid), j = i + +mv.dataset.mv; if (j < 0 || j >= ids.length) return; [ids[i], ids[j]] = [ids[j], ids[i]]; await saveOrder(ids); return; }
     const goto = e.target.closest('[data-goto]'); const ul = e.target.closest('[data-unlink]'); const dt = e.target.closest('[data-deltask]');
     if (ul) { try { await api(`/api/cases/${id}/alerts/${ul.dataset.unlink}`, { method: 'DELETE' }); toast('Alert removed from the case'); await reload(); } catch (err) { toast(err.message, true); } return; }
+    const ee = e.target.closest('[data-editexpert]'); const de = e.target.closest('[data-delexpert]');
+    if (ee) { openExpert(c, (c.experts || []).find(x => x.id === +ee.dataset.editexpert), reload); return; }
+    if (de) { if (confirm('Remove this expert from the case?')) { try { await api(`/api/cases/${id}/experts/${de.dataset.delexpert}`, { method: 'DELETE' }); toast('Expert removed'); await reload(); } catch (err) { toast(err.message, true); } } return; }
     const uc = e.target.closest('[data-unlinkcase]'); const ls = e.target.closest('[data-linksim]');
     if (uc) { try { await api(`/api/cases/${id}/links/${uc.dataset.unlinkcase}`, { method: 'DELETE' }); toast('Link removed'); await reload(); } catch (err) { toast(err.message, true); } return; }
     if (ls) { try { await api(`/api/cases/${id}/links`, { method: 'POST', json: { case_id: +ls.dataset.linksim } }); toast(`Linked to case #${ls.dataset.linksim}`); await reload(); } catch (err) { toast(err.message, true); } return; }
@@ -231,6 +235,7 @@ async function viewCase(id, keepScroll = false) {
         else if (a === 'reopen') { await api(`/api/cases/${id}/reopen`, { method: 'POST' }); toast('Case reopened'); await reload(); refreshChrome(); }
         else if (a === 'delete') { if (confirm(`Delete case #${id}? Its alerts stay and become free again. This cannot be undone.`)) { await api('/api/cases/' + id, { method: 'DELETE' }); toast('Case deleted'); refreshChrome(); location.hash = '#/cases'; } }
         else if (a === 'addalerts') openAddAlerts(id, reload);
+        else if (a === 'addexpert') openExpert(c, null, reload);
         else if (a === 'linkcase') openLinkRelated(c, reload);
       } catch (err) { toast(err.message, true); }
       return;
@@ -296,6 +301,33 @@ async function openCaseForm(alertIds) {
 }
 
 /* add one alert to an existing open case */
+function expertsHtml(c) {
+  const ex = c.experts || [];
+  return `<div class="panel"><div class="page-head" style="margin-bottom:8px"><h2 style="margin:0">Technical experts</h2><span class="sub">who you asked and what they said</span><span class="spacer"></span><button class="btn small" data-cact="addexpert">Add expert</button></div>
+    ${ex.length ? `<ul class="rel experts">${ex.map(x => `<li><div><b>${esc(x.name)}</b>${x.organisation ? `, ${esc(x.organisation)}` : ''}${x.area ? ` <span class="muted">for ${esc(x.area)}</span>` : ''}
+      <div class="muted">${[x.contact, x.consulted_on ? 'consulted ' + x.consulted_on : ''].filter(Boolean).map(esc).join(', ')}</div>${x.input ? `<div style="white-space:pre-wrap;margin-top:4px">${esc(x.input)}</div>` : ''}</div>
+      <span class="nowrap"><button class="btn ghost small" data-editexpert="${x.id}" title="Edit" aria-label="Edit expert ${esc(x.name)}">Edit</button><button class="btn ghost small" data-delexpert="${x.id}" title="Remove" aria-label="Remove expert ${esc(x.name)}">×</button></span></li>`).join('')}</ul>` : '<p class="muted" style="margin:0">No expert documented yet. Add the system or component owner you asked, with what they told you.</p>'}</div>`;
+}
+
+function openExpert(c, x, done) {
+  x = x || {};
+  openDrawer(x.id ? 'Edit technical expert' : 'Add technical expert', `
+    <label class="field"><span>Name</span><input type="text" id="ex-name" maxlength="120" value="${esc(x.name || '')}"></label>
+    <label class="field"><span>Organisation or team</span><input type="text" id="ex-org" maxlength="120" value="${esc(x.organisation || '')}" placeholder="Supplier, department"></label>
+    <label class="field"><span>System or component</span><input type="text" id="ex-area" maxlength="200" value="${esc(x.area || '')}" placeholder="e.g. Telematics unit, gateway firmware"></label>
+    <label class="field"><span>Contact</span><input type="text" id="ex-contact" maxlength="200" value="${esc(x.contact || '')}" placeholder="E-mail or phone"></label>
+    <label class="field"><span>Consulted on</span><input type="date" id="ex-date" value="${esc(x.consulted_on || '')}"></label>
+    <label class="field"><span>What did the expert say?</span><textarea id="ex-input" rows="5" maxlength="3000" placeholder="Statement, assessment, open questions">${esc(x.input || '')}</textarea></label>
+    <p style="margin:0"><button class="btn primary" id="ex-go">${x.id ? 'Save' : 'Add expert'}</button> <button class="btn" data-act="close-drawer">Cancel</button></p>`);
+  $('#ex-go').addEventListener('click', async () => {
+    const json = { name: $('#ex-name').value, organisation: $('#ex-org').value, area: $('#ex-area').value, contact: $('#ex-contact').value, consulted_on: $('#ex-date').value, input: $('#ex-input').value };
+    try {
+      await api(`/api/cases/${c.id}/experts${x.id ? '/' + x.id : ''}`, { method: x.id ? 'PATCH' : 'POST', json });
+      closeDrawer(); toast(x.id ? 'Expert saved' : 'Expert added'); done();
+    } catch (e) { toast(e.message, true); }
+  });
+}
+
 function relatedHtml(c) {
   const rel = c.related || [], sim = c.similar || [];
   return `<div class="panel"><div class="page-head" style="margin-bottom:8px"><h2 style="margin:0">Related cases</h2><span class="spacer"></span><button class="btn small" data-cact="linkcase">Link case</button></div>

@@ -94,6 +94,12 @@ CREATE TABLE IF NOT EXISTS case_tasks(
   done INTEGER DEFAULT 0, done_at INTEGER, done_by TEXT DEFAULT '', position INTEGER
 );
 CREATE INDEX IF NOT EXISTS ix_ct_case ON case_tasks(case_id);
+CREATE TABLE IF NOT EXISTS case_experts(
+  id INTEGER PRIMARY KEY, case_id INTEGER NOT NULL,
+  name TEXT NOT NULL, organisation TEXT DEFAULT '', area TEXT DEFAULT '', contact TEXT DEFAULT '',
+  consulted_on TEXT DEFAULT '', input TEXT DEFAULT '', created_by TEXT DEFAULT '', created_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS ix_ce_case ON case_experts(case_id);
 CREATE TABLE IF NOT EXISTS case_log(
   id INTEGER PRIMARY KEY, case_id INTEGER, author TEXT, kind TEXT, body TEXT, created_at INTEGER
 );

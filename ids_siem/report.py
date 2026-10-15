@@ -116,6 +116,13 @@ def render(cid):
     else:
         parts.append("<p class='muted'>No tasks.</p>")
 
+    parts.append("<h2>Technical experts</h2>")
+    if d["experts"]:
+        parts.append("<table><tr><th>Name</th><th>Organisation</th><th>System or component</th><th>Contact</th><th style='width:90px'>Consulted</th><th>Input</th></tr>" + "".join(
+            row(e(x["name"]), e(x["organisation"]), e(x["area"]), e(x["contact"]), e(x["consulted_on"]), _text(x["input"]) if x["input"] else "<span class='muted'>no input recorded</span>") for x in d["experts"]) + "</table>")
+    else:
+        parts.append("<p class='muted'>No technical experts documented.</p>")
+
     parts.append("<h2>Activity</h2>")
     log = list(reversed(d["log"]))
     parts.append("<table><tr><th style='width:130px'>When</th><th style='width:110px'>Who</th><th>What</th></tr>" +
