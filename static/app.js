@@ -1,6 +1,9 @@
 /* Views and routing. */
 'use strict';
 
+// Passkeys only work with a host name, so an address typed as 127.0.0.1 is moved to localhost (same computer, same port)
+if (location.hostname === '127.0.0.1') location.replace('http://localhost' + (location.port ? ':' + location.port : '') + location.pathname + location.search + location.hash);
+
 const view = $('#view');
 const FILTER_KEYS = ['ecu', 'type', 'severity', 'category', 'vin_prefix', 'cat', 'vin', 'import_id', 'from', 'to', 'ts', 'alert', 'case'];
 const LIST_KEYS = new Set(['ecu', 'type', 'severity', 'category', 'vin_prefix', 'cat']);
@@ -577,7 +580,7 @@ ROUTES.data = async function () {
     <p class="muted">Vehicles often report an unsynchronised clock (for example 2020 or 1970) until they get a time source. Timestamps before the date above are treated as unusable.</p>
     <p style="margin:0"><button class="btn" id="savest">Save settings</button></p></div>
   <div class="panel"><h2>Feed events from another system</h2><p style="margin-top:0">Post JSON with the same field names as the export. This is the hook for a future REST pull from the backend.</p>
-<pre>curl -X POST http://127.0.0.1:${location.port || 8765}/api/ingest?source=backend \\
+<pre>curl -X POST http://localhost:${location.port || 8765}/api/ingest?source=backend \\
   -H "X-SIEM: 1" -H "Content-Type: application/json" \\
   -d '[{"report.event_type":"can","sev_metadata.timestamp":1754754669000,"vin":"SC6GN3DAXSF023632","ecu_name":"ETGW","ecu_id":1,"sev_metadata.event_id":32775,"sev_metadata.name":"IdsMEventConfig_ETGW_ECY_IDPS_RPRT_FRQ_DELTA_TOO_HI","sev_metadata.description":"..."}]'</pre></div>
   <div class="panel"><h2>Delete all data</h2><p style="margin-top:0">Removes every event, alert, case and note. Catalog and settings stay.</p><input type="text" id="resetconf" placeholder='Type DELETE ALL EVENTS' size="24"> <button class="btn danger" id="reset">Delete everything</button></div>`;

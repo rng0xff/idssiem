@@ -964,7 +964,7 @@ def serve(host="127.0.0.1", port=8765):
     cycurguard.start_scheduler()
     srv = ThreadingHTTPServer((host, port), Handler)
     srv.daemon_threads = True
-    print(f"Fleet IDS SIEM running at http://{host}:{port}  (Ctrl+C to stop)")
+    print(f"Fleet IDS SIEM running at http://{'localhost' if host == '127.0.0.1' else host}:{port}  (Ctrl+C to stop)")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

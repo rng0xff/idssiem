@@ -4,7 +4,7 @@ Runs on your machine, nothing leaves it. The look follows the INEOS TARA Workben
 
 ```
 pip install -r requirements.txt        # only for .xlsx import
-python idssiem.py                          # then open http://127.0.0.1:8765
+python idssiem.py                          # then open http://localhost:8765
 python idssiem.py --import export.csv      # optional: import before starting
 ```
 
@@ -111,7 +111,7 @@ The first start asks for the first administrator. After that everything needs a 
 API tokens belong to a user and have their own permission (`view`, `modify`, `full`) and expiry. The effective access is the lower of the token and the owner's role. Tokens cannot create tokens or change passwords. The administrator sets the longest lifetime, the default, and can switch tokens off entirely. A token is shown once and only its hash is stored.
 
 ```
-curl -H "Authorization: Bearer ids_..." http://127.0.0.1:8765/api/summary
+curl -H "Authorization: Bearer ids_..." http://localhost:8765/api/summary
 ```
 
 Notes and cases are attributed to the signed-in user. Locked out? Run `python idssiem.py --reset-password USER` on the machine.
@@ -127,7 +127,7 @@ Everyone can add a second step under **Account → Two-step sign-in**. Every cha
 - **Policy.** An administrator can require two-step sign-in on the Users page (not allowed until they have it themselves). People without it can then only reach their Account page until they have set it up. API tokens are not affected, they have their own permission and expiry.
 - **Lost phone or key.** An administrator resets a person's two-step sign-in in the user's panel; on the computer, `python idssiem.py --reset-mfa USER` does the same. Both sign the person out everywhere. The reset and every change are in the audit log (`mfa.*`).
 
-Passkeys need a domain name as their identity, so they work only when you open the tool as **http://localhost:8765** (not 127.0.0.1) and are bound to that address and port. Authenticator codes work at either address. The TOTP key is stored in the database file in clear text, as it has to be to check codes, like the backend token; protect the file. The code is `ids_siem/mfa.py`, `webauthn.py` (standard library only) and `qr.py`.
+Passkeys need a domain name as their identity, so they work only when you open the tool as **http://localhost:8765** (not 127.0.0.1) and are bound to that address and port. An address typed as 127.0.0.1 is redirected to localhost automatically. Authenticator codes work at either address. The TOTP key is stored in the database file in clear text, as it has to be to check codes, like the backend token; protect the file. The code is `ids_siem/mfa.py`, `webauthn.py` (standard library only) and `qr.py`.
 
 ## Audit log
 

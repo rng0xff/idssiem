@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """MCP server that lets an AI agent analyse Fleet IDS SIEM through its REST API. Standard library only.
 
-    IDS_SIEM_URL    address of the running app (default http://127.0.0.1:8765)
+    IDS_SIEM_URL    address of the running app (default http://localhost:8765)
     IDS_SIEM_TOKEN  an API token created on the Account page
 
 What the agent can do is set by the token and by this file:
@@ -17,7 +17,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-BASE = os.environ.get("IDS_SIEM_URL", "http://127.0.0.1:8765").rstrip("/")
+BASE = os.environ.get("IDS_SIEM_URL", "http://localhost:8765").rstrip("/")
 TOKEN = os.environ.get("IDS_SIEM_TOKEN", "").strip()
 MAX_CHARS = 30000
 NOTE_PREFIX = "[AI agent] "
