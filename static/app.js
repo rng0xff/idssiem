@@ -377,10 +377,19 @@ ROUTES.vehicle = async function (vin) {
   <div class="grid2">
     <div class="panel"><h2>What this vehicle reported</h2><div class="tablewrap"><table><thead><tr><th>Event</th><th>ECU</th><th class="num">Count</th><th>Last seen</th></tr></thead><tbody>
       ${v.by_event.map(r => `<tr class="row" data-go="${hashFor('events', { vin, cat: r.cat_id, ...(r.ecu_name ? { ecu: r.ecu_name } : {}) })}"><td>${sevHtml(r.severity)} ${esc(r.short_name)}</td><td>${esc(r.ecu_name) || '<span class="muted">none</span>'}</td><td class="num">${fmtN(r.n)}</td><td class="nowrap">${fmtDay(r.last_ts)}</td></tr>`).join('')}</tbody></table></div></div>
-    <div class="panel"><h2>Alerts</h2>${v.alerts.length ? `<div class="tablewrap"><table><tbody>${v.alerts.map(a => `<tr class="row" data-go="#/alerts/${a.id}"><td>${sevHtml(a.severity)}</td><td><a class="rowlink" href="#/alerts/${a.id}">${esc(a.title)}</a></td><td>${statusHtml(a.status)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">No alerts for this vehicle</div>'}</div>
+    <div class="panel"><h2>Alerts</h2><div id="valerts">${v.alerts.length ? `<div class="tablewrap"><table><tbody>${v.alerts.map(a => `<tr class="row" data-aid="${a.id}"><td>${sevHtml(a.severity)}</td><td><a class="rowlink" href="#/alerts/${a.id}">${esc(a.title)}</a></td><td>${statusHtml(a.status)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">No alerts for this vehicle</div>'}</div></div>
   </div>`;
   renderTimeline($('#tl'), t, { onSelect: (a, b) => { location.hash = hashFor('events', { vin, from: a, to: b }); } });
-  view.onclick = e => { const r = e.target.closest('[data-go]'); if (r) location.hash = r.dataset.go; };
+  window.__reloadAlerts = async () => {
+    const nv = await api('/api/vehicles/' + encodeURIComponent(vin));
+    const box = $('#valerts'); if (!box) return;
+    box.innerHTML = nv.alerts.length ? `<div class="tablewrap"><table><tbody>${nv.alerts.map(a => `<tr class="row" data-aid="${a.id}"><td>${sevHtml(a.severity)}</td><td><a class="rowlink" href="#/alerts/${a.id}">${esc(a.title)}</a></td><td>${statusHtml(a.status)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">No alerts for this vehicle</div>';
+  };
+  view.onclick = e => {
+    const al = e.target.closest('tr[data-aid]');
+    if (al) { openAlert(+al.dataset.aid); return; }
+    const r = e.target.closest('[data-go]'); if (r) location.hash = r.dataset.go;
+  };
 };
 
 /* ---------------------------------------------------------------- alerts */
@@ -468,7 +477,7 @@ $('#drawer').addEventListener('click', async e => {
   if (act === 'new-case') { openCaseForm([id]).catch(err => toast(err.message, true)); return; }
   if (act === 'suppress') { openSuppressForm(id).catch(err => toast(err.message, true)); return; }
   if (act === 'add-to-case') {
-    try { await api(`/api/cases/${b.dataset.case}/alerts`, { method: 'POST', json: { alert_ids: [id] } }); toast(`Added to case #${b.dataset.case}`); await openAlert(id); if (window.__reloadAlerts && parseHash().name === 'alerts') window.__reloadAlerts(); } catch (err) { toast(err.message, true); }
+    try { await api(`/api/cases/${b.dataset.case}/alerts`, { method: 'POST', json: { alert_ids: [id] } }); toast(`Added to case #${b.dataset.case}`); await openAlert(id); if (window.__reloadAlerts) window.__reloadAlerts(); } catch (err) { toast(err.message, true); }
     return;
   }
   if (act === 'link-case') { openLinkCase(id).catch(err => toast(err.message, true)); return; }
@@ -478,7 +487,7 @@ $('#drawer').addEventListener('click', async e => {
     else if (act === 'add-comment') { const v = $('#cmt').value.trim(); if (!v) return; await api('/api/alerts/' + id, { method: 'PATCH', json: { comment: v } }); }
     else return;
     await openAlert(id);
-    if (window.__reloadAlerts && parseHash().name === 'alerts') window.__reloadAlerts();
+    if (window.__reloadAlerts) window.__reloadAlerts();
     refreshChrome();
   } catch (err) { toast(err.message, true); }
 });

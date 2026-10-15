@@ -20,7 +20,7 @@ async function openSuppressForm(alertId) {
     try {
       const r = await api('/api/suppressions', { method: 'POST', json: { rule: $('#sp-rule').value, ecu_name: $('#sp-ecu').value.trim(), cat_id: $('#sp-cat').value.trim(), vin: $('#sp-vin').value.trim(), reason: $('#sp-reason').value, days: +$('#sp-days').value } });
       closeDrawer(); toast(`Rule created. ${fmtN(r.detections.suppressed)} alert(s) suppressed.`); refreshChrome();
-      if (window.__reloadAlerts && parseHash().name === 'alerts') window.__reloadAlerts();
+      if (window.__reloadAlerts) window.__reloadAlerts();
       if (parseHash().name === 'detections') renderSuppressions();
     } catch (e) { toast(e.message, true); }
   });
