@@ -320,8 +320,10 @@ body.locked #auth { display: flex; min-height: 100vh; align-items: center; justi
 #mfapanel code { word-break: break-all; }
 #mfapanel h3 { font-size: 14px; }
 
-.tasklist .taskres { flex: 0 0 100%; margin: 0 0 0 26px; width: calc(100% - 26px); box-sizing: border-box; font: inherit; font-size: 13px; padding: 4px 8px; resize: vertical; min-height: 28px; background: transparent; border: 1px solid transparent; border-radius: 4px; }
-.tasklist .taskres:hover, .tasklist .taskres:focus { border-color: var(--line); background: var(--panel, transparent); }
+.tasklist .taskres { flex: 0 0 100%; margin: 2px 0 2px 26px; width: calc(100% - 26px); box-sizing: border-box; font: inherit; font-size: 13px; line-height: 1.5; padding: 6px 10px; resize: none; overflow: hidden; min-height: 34px; color: var(--ink); background: var(--panel); border: 1px solid var(--line2); border-left: 3px solid var(--line2); border-radius: 4px; }
+.tasklist .taskres:placeholder-shown { background: transparent; border-style: dashed; border-left-width: 1px; }
+.tasklist .taskres:hover { border-color: var(--ink3); }
+.tasklist .taskres:focus { outline: none; border-color: var(--ink3); box-shadow: 0 0 0 2px var(--panel2); }
 .tasklist li.done .taskres { text-decoration: none; }
 
 .rowlink { color: inherit; }
