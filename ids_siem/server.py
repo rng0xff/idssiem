@@ -627,6 +627,11 @@ def api_experts(h, p):
     return cases.known_experts()
 
 
+@route("POST", "/api/experts/forget")
+def api_experts_forget(h, p):
+    return _case_call(cases.forget_expert, h.json_body())
+
+
 @route("POST", "/api/cases/sync-tasks", level=3)
 def api_case_sync_tasks(h, p):
     return _case_call(cases.sync_default_tasks, h.json_body())

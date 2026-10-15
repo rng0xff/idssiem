@@ -100,6 +100,10 @@ CREATE TABLE IF NOT EXISTS case_experts(
   consulted_on TEXT DEFAULT '', input TEXT DEFAULT '', created_by TEXT DEFAULT '', created_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS ix_ce_case ON case_experts(case_id);
+CREATE TABLE IF NOT EXISTS expert_directory(
+  key TEXT PRIMARY KEY, name TEXT NOT NULL, organisation TEXT DEFAULT '', area TEXT DEFAULT '', contact TEXT DEFAULT '',
+  used INTEGER DEFAULT 1, last_used INTEGER
+);
 CREATE TABLE IF NOT EXISTS task_experts(
   task_id INTEGER NOT NULL, expert_id INTEGER NOT NULL, PRIMARY KEY(task_id, expert_id)
 );
@@ -214,6 +218,10 @@ def init():
         c.execute("UPDATE case_tasks SET state='done' WHERE done=1")  # cases from an earlier version
     if "expert_id" not in ct:
         c.execute("ALTER TABLE case_tasks ADD COLUMN expert_id INTEGER")  # one expert per step, replaced by task_experts
+    if not c.execute("SELECT 1 FROM expert_directory LIMIT 1").fetchone():  # experts of earlier versions
+        for r in c.execute("SELECT name, organisation, area, contact, COUNT(*) AS n, MAX(created_at) AS l FROM case_experts GROUP BY lower(name)").fetchall():
+            c.execute("INSERT OR IGNORE INTO expert_directory(key, name, organisation, area, contact, used, last_used) VALUES(?,?,?,?,?,?,?)",
+                      (r["name"].strip().lower(), r["name"], r["organisation"], r["area"], r["contact"], r["n"], r["l"]))
     c.execute("INSERT OR IGNORE INTO task_experts(task_id, expert_id) SELECT id, expert_id FROM case_tasks WHERE expert_id IS NOT NULL")
     c.execute("UPDATE case_tasks SET expert_id=NULL WHERE expert_id IS NOT NULL")
     if c.execute("SELECT 1 FROM alerts LIMIT 1").fetchone() and not c.execute("SELECT 1 FROM alert_events LIMIT 1").fetchone():

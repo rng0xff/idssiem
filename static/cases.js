@@ -330,19 +330,43 @@ async function openExpert(c, x, done, cancelled) {
   let known = [];
   try { known = await api('/api/experts'); } catch (e) { /* proposals are optional */ }
   openDrawer(x.id ? 'Edit technical expert' : 'Add technical expert', `
-    <label class="field"><span>Name</span><input type="text" id="ex-name" maxlength="120" list="ex-known" autocomplete="off" value="${esc(x.name || '')}"><datalist id="ex-known">${known.map(k => `<option value="${esc(k.name)}">${esc([k.organisation, k.area].filter(Boolean).join(', '))}</option>`).join('')}</datalist></label>
+    <label class="field"><span>Name</span><input type="text" id="ex-name" maxlength="120" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="ex-sug" value="${esc(x.name || '')}"><ul id="ex-sug" class="suggest" role="listbox" hidden></ul></label>
     <label class="field"><span>Organisation or team</span><input type="text" id="ex-org" maxlength="120" value="${esc(x.organisation || '')}" placeholder="Supplier, department"></label>
     <label class="field"><span>System or component</span><input type="text" id="ex-area" maxlength="200" value="${esc(x.area || '')}" placeholder="e.g. Telematics unit, gateway firmware"></label>
     <label class="field"><span>Contact</span><input type="text" id="ex-contact" maxlength="200" value="${esc(x.contact || '')}" placeholder="E-mail or phone"></label>
     <label class="field"><span>Consulted on</span><input type="date" id="ex-date" value="${esc(x.consulted_on || '')}"></label>
     <label class="field"><span>What did the expert say?</span><textarea id="ex-input" rows="5" maxlength="3000" placeholder="Statement, assessment, open questions">${esc(x.input || '')}</textarea></label>
     <p style="margin:0"><button class="btn primary" id="ex-go">${x.id ? 'Save' : 'Add expert'}</button> <button class="btn" data-act="close-drawer">Cancel</button></p>`);
-  const fillKnown = () => {  // a name used before proposes its organisation, area and contact, empty fields only
-    const k = known.find(z => z.name.toLowerCase() === $('#ex-name').value.trim().toLowerCase()); if (!k) return;
-    [['#ex-org', k.organisation], ['#ex-area', k.area], ['#ex-contact', k.contact]].forEach(([sel, v]) => { if (v && !$(sel).value) $(sel).value = v; });
+  // proposals while typing: names used before, matched on name, organisation or system; choosing one fills the empty fields
+  const sug = $('#ex-sug'), nameIn = $('#ex-name'); let hit = [], at = -1;
+  const showSug = () => {
+    const q = nameIn.value.trim().toLowerCase();
+    hit = known.filter(k => !q || [k.name, k.organisation, k.area].join(' ').toLowerCase().includes(q)).filter(k => k.name.toLowerCase() !== q).slice(0, 6); at = -1;
+    sug.hidden = !hit.length; nameIn.setAttribute('aria-expanded', String(!!hit.length));
+    sug.innerHTML = hit.map((k, i) => `<li role="option" data-i="${i}"><span><b>${esc(k.name)}</b><span class="muted">${esc([k.organisation, k.area].filter(Boolean).join(', '))}</span></span><button type="button" class="chipx" data-forget="${i}" title="Do not propose this name again" aria-label="Forget ${esc(k.name)}">×</button></li>`).join('');
   };
-  $('#ex-name').addEventListener('change', fillKnown);
-  $('#ex-name').addEventListener('input', e => { if (!e.inputType || e.inputType === 'insertReplacementText') fillKnown(); });
+  const pick = k => {
+    nameIn.value = k.name;
+    [['#ex-org', k.organisation], ['#ex-area', k.area], ['#ex-contact', k.contact]].forEach(([sel, v]) => { if (v && !$(sel).value) $(sel).value = v; });
+    sug.hidden = true; nameIn.setAttribute('aria-expanded', 'false'); $('#ex-org').focus();
+  };
+  const mark = () => sug.querySelectorAll('li').forEach((li, i) => li.classList.toggle('on', i === at));
+  nameIn.addEventListener('input', showSug);
+  nameIn.addEventListener('focus', showSug);
+  nameIn.addEventListener('keydown', e => {
+    if (sug.hidden) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); at = Math.min(hit.length - 1, at + 1); mark(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); at = Math.max(0, at - 1); mark(); }
+    else if (e.key === 'Enter' && at >= 0) { e.preventDefault(); pick(hit[at]); }
+    else if (e.key === 'Escape') { e.stopPropagation(); sug.hidden = true; }
+  });
+  sug.addEventListener('mousedown', async e => {
+    e.preventDefault();
+    const f = e.target.closest('[data-forget]');
+    if (f) { const k = hit[+f.dataset.forget]; try { await api('/api/experts/forget', { method: 'POST', json: { name: k.name } }); known = known.filter(z => z !== k); showSug(); toast(`${k.name} is not proposed any more`); } catch (err) { toast(err.message, true); } return; }
+    const li = e.target.closest('li[data-i]'); if (li) pick(hit[+li.dataset.i]);
+  });
+  nameIn.addEventListener('blur', () => { sug.hidden = true; });
   $('#ex-go').addEventListener('click', async () => {
     const json = { name: $('#ex-name').value, organisation: $('#ex-org').value, area: $('#ex-area').value, contact: $('#ex-contact').value, consulted_on: $('#ex-date').value, input: $('#ex-input').value };
     try {

@@ -438,6 +438,7 @@ def add_expert(cid, body):
     _case_or_404(c, cid)
     c.execute("INSERT INTO case_experts(case_id, name, organisation, area, contact, consulted_on, input, created_by, created_at) VALUES(?,?,?,?,?,?,?,?,?)",
               (cid, f["name"], f["organisation"], f["area"], f["contact"], f["consulted_on"], f["input"], _who(), now))
+    _remember_expert(c, f, now)
     _log(c, cid, "system", f"{_who()} documented the technical expert {f['name']}" + (f" ({f['area']})" if f["area"] else ""), now, action="case.expert")
     c.execute("UPDATE cases SET updated_at=? WHERE id=?", (now, cid))
     c.commit()
@@ -455,6 +456,7 @@ def update_expert(cid, eid, body):
     changed = [k for k, v in f.items() if v != (e[k] or "")]
     if changed:
         c.execute("UPDATE case_experts SET " + ", ".join(f"{k}=?" for k in f) + " WHERE id=?", (*f.values(), eid))
+        _remember_expert(c, {k: f.get(k, e[k]) or "" for k in ("name", "organisation", "area", "contact")}, now, used=False)
         _log(c, cid, "system", f"{_who()} updated the technical expert {f.get('name', e['name'])} ({', '.join(x.replace('_', ' ') for x in changed)})", now, action="case.expert")
         c.execute("UPDATE cases SET updated_at=? WHERE id=?", (now, cid))
         c.commit()
@@ -475,13 +477,29 @@ def delete_expert(cid, eid):
     return get_case(cid)
 
 
+def _remember_expert(c, f, now, used=True):
+    """Keep the expert in the directory that proposes names when you type; it outlives the case."""
+    key = f["name"].strip().lower()
+    c.execute("INSERT INTO expert_directory(key, name, organisation, area, contact, used, last_used) VALUES(?,?,?,?,?,1,?) "
+              "ON CONFLICT(key) DO UPDATE SET organisation=COALESCE(NULLIF(excluded.organisation,''), organisation), area=COALESCE(NULLIF(excluded.area,''), area), "
+              "contact=COALESCE(NULLIF(excluded.contact,''), contact), used=used+?, last_used=excluded.last_used", (key, f["name"], f["organisation"], f["area"], f["contact"], now, 1 if used else 0))
+
+
 def known_experts():
-    """Experts named in any case, one per name (the most recent entry wins), so a name typed once is proposed next time."""
+    """Every expert ever documented, one per name, most used first."""
     c = db.conn()
-    rows = c.execute("SELECT name, organisation, area, contact, COUNT(*) OVER (PARTITION BY lower(name)) AS n, "
-                     "ROW_NUMBER() OVER (PARTITION BY lower(name) ORDER BY id DESC) AS rn FROM case_experts").fetchall()
-    out = [{"name": r["name"], "organisation": r["organisation"], "area": r["area"], "contact": r["contact"], "cases": r["n"]} for r in rows if r["rn"] == 1]
-    return sorted(out, key=lambda x: (-x["cases"], x["name"].lower()))
+    return [dict(r) for r in c.execute("SELECT name, organisation, area, contact, used AS cases FROM expert_directory ORDER BY used DESC, last_used DESC, name COLLATE NOCASE")]
+
+
+def forget_expert(body):
+    name = str(body.get("name") or "").strip().lower()
+    if not name:
+        raise ValueError("name missing")
+    c = db.conn()
+    c.execute("DELETE FROM expert_directory WHERE key=?", (name,))
+    auth.log(auth.current_actor(), "expert.forget", f"removed '{body.get('name')}' from the list of proposed experts")
+    c.commit()
+    return {"forgotten": body.get("name")}
 
 
 # ------------------------------------------------------------------ alerts of a case
