@@ -277,6 +277,33 @@ def add_task(cid, body):
     return get_case(cid)
 
 
+def sync_default_tasks(body):
+    """Add the steps of the default checklist that an open case does not have yet (matched by title).
+    Missing steps are appended at the end; existing steps, results and order are not touched. Closed cases are skipped."""
+    dry = bool(body.get("dry_run"))
+    defaults = [t for t in db.get_settings().get("case_tasks", []) if t]
+    c = db.conn()
+    now = db.now_ms()
+    touched = added = 0
+    for r in c.execute("SELECT id FROM cases WHERE status != 'closed' ORDER BY id").fetchall():
+        have = {(t["title"] or "").strip().lower() for t in c.execute("SELECT title FROM case_tasks WHERE case_id=?", (r["id"],))}
+        missing = [t for t in defaults if t.strip().lower() not in have]
+        if not missing:
+            continue
+        touched += 1
+        added += len(missing)
+        if dry:
+            continue
+        pos = c.execute("SELECT COALESCE(MAX(position), -1) + 1 FROM case_tasks WHERE case_id=?", (r["id"],)).fetchone()[0]
+        for i, t in enumerate(missing):
+            c.execute("INSERT INTO case_tasks(case_id, title, position) VALUES(?,?,?)", (r["id"], t, pos + i))
+        _log(c, r["id"], "system", f"{_who()} added missing default steps: " + "; ".join(missing), now, action="case.task")
+        c.execute("UPDATE cases SET updated_at=? WHERE id=?", (now, r["id"]))
+    if not dry:
+        c.commit()
+    return {"cases": touched, "tasks": added, "dry_run": dry}
+
+
 TASK_RESULT_MAX = 2000
 
 

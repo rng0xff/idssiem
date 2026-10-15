@@ -582,7 +582,7 @@ ROUTES.data = async function () {
   <div class="panel"><h2>Settings</h2><div class="params"><label>Earliest plausible event date<input type="text" id="tsmin" value="${esc(st.ts_min)}" placeholder="YYYY-MM-DD"></label></div>
     <label class="field" style="margin-top:14px;max-width:640px"><span>Checklist every new case starts with, one task per line</span><textarea id="casetasks" rows="5">${esc((st.case_tasks || []).join('\n'))}</textarea></label>
     <p class="muted">Vehicles often report an unsynchronised clock (for example 2020 or 1970) until they get a time source. Timestamps before the date above are treated as unusable.</p>
-    <p style="margin:0"><button class="btn" id="savest">Save settings</button></p></div>
+    <p style="margin:0"><button class="btn" id="savest">Save settings</button> <button class="btn" id="synctasks" title="Adds the steps above that an open case is missing, at the end of its checklist">Add missing steps to open cases</button></p></div>
   <div class="panel"><h2>Feed events from another system</h2><p style="margin-top:0">Post JSON with the same field names as the export. This is the hook for a future REST pull from the backend.</p>
 <pre>curl -X POST http://localhost:${location.port || 8765}/api/ingest?source=backend \\
   -H "X-SIEM: 1" -H "Content-Type: application/json" \\
@@ -605,6 +605,15 @@ ROUTES.data = async function () {
   ['dragleave', 'drop'].forEach(n => drop.addEventListener(n, e => { e.preventDefault(); drop.classList.remove('over'); }));
   drop.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if (f) doImport(f); });
   $('#savest').addEventListener('click', async () => { try { await api('/api/settings', { method: 'PUT', json: { ts_min: $('#tsmin').value.trim(), case_tasks: $('#casetasks').value.split('\n').map(x => x.trim()).filter(Boolean) } }); toast('Settings saved'); render(); } catch (e) { toast(e.message, true); } });
+  $('#synctasks').addEventListener('click', async () => {
+    try {
+      const d = await api('/api/cases/sync-tasks', { method: 'POST', json: { dry_run: true } });
+      if (!d.cases) { toast('All open cases already have these steps'); return; }
+      if (!confirm(`Add ${d.tasks} missing step${d.tasks === 1 ? '' : 's'} to ${d.cases} open case${d.cases === 1 ? '' : 's'}? Save the settings first if you changed the list. Existing steps and results stay, closed cases are skipped.`)) return;
+      const r = await api('/api/cases/sync-tasks', { method: 'POST', json: {} });
+      toast(`Added ${r.tasks} step${r.tasks === 1 ? '' : 's'} to ${r.cases} case${r.cases === 1 ? '' : 's'}`);
+    } catch (e) { toast(e.message, true); }
+  });
   $('#reset').addEventListener('click', async () => { try { await api('/api/reset', { method: 'POST', json: { confirm: $('#resetconf').value } }); toast('All events deleted'); render(); } catch (e) { toast(e.message, true); } });
   view.onclick = async e => {
     const g = e.target.closest('[data-go]'); if (g) { location.hash = g.dataset.go; return; }
