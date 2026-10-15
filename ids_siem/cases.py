@@ -275,6 +275,9 @@ def add_task(cid, body):
     return get_case(cid)
 
 
+TASK_RESULT_MAX = 2000
+
+
 def update_task(cid, tid, body):
     c = db.conn()
     now = db.now_ms()
@@ -292,6 +295,12 @@ def update_task(cid, tid, body):
             _log(c, cid, "system", f"{who} reopened the task: {t['title']}", now, action="case.task")
     if "title" in body and str(body["title"]).strip():
         c.execute("UPDATE case_tasks SET title=? WHERE id=?", (str(body["title"]).strip()[:200], tid))
+    if "result" in body:
+        res = str(body["result"] or "").strip()[:TASK_RESULT_MAX]
+        if res != (t["result"] or ""):
+            c.execute("UPDATE case_tasks SET result=? WHERE id=?", (res, tid))
+            _log(c, cid, "system", f"{who} {'documented the result of' if res else 'cleared the result of'} the task: {t['title']}"
+                 + (f" ({len(res)} characters)" if res else ""), now, action="case.task")
     c.execute("UPDATE cases SET updated_at=? WHERE id=?", (now, cid))
     c.commit()
     return get_case(cid)

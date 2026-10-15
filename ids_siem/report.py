@@ -101,8 +101,13 @@ def render(cid):
         parts.append("<p class='muted'>No alerts linked.</p>")
 
     parts.append("<h2>Checklist</h2>")
-    parts.append("<table>" + "".join(f"<tr><td style='width:28px'>{'&#9745;' if t['done'] else '&#9744;'}</td><td>{e(t['title'])}</td></tr>" for t in d["tasks"]) + "</table>"
-                 if d["tasks"] else "<p class='muted'>No tasks.</p>")
+    if d["tasks"]:
+        parts.append("<table><tr><th style='width:28px'></th><th>Step</th><th>Result</th><th style='width:150px'>Done</th></tr>" + "".join(
+            f"<tr><td>{'&#9745;' if t['done'] else '&#9744;'}</td><td>{e(t['title'])}</td>"
+            f"<td>{_text(t['result']) if t.get('result') else '<span class=muted>no result recorded</span>'}</td>"
+            f"<td>{(e(t['done_by']) + ', ' + _t(t['done_at'])) if t['done'] else ''}</td></tr>" for t in d["tasks"]) + "</table>")
+    else:
+        parts.append("<p class='muted'>No tasks.</p>")
 
     parts.append("<h2>Activity</h2>")
     log = list(reversed(d["log"]))

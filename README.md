@@ -18,7 +18,7 @@ Data is stored in `data/siem.db` (SQLite). Set `IDS_SIEM_DB` to use another path
 | Events | Search with `vin:` `ecu:` `sev:` `name:` `id:` `type:` `cat:` `desc:` `ts:invalid`, `-` to negate, plus facets, time range, detail drawer with analyst notes, CSV export of the current result |
 | Vehicles | Risk ranking, per-vehicle timeline, what each ECU reported, alerts, and the model year, body, engine, hand of drive and market decoded from the VIN |
 | Alerts | Triage queue: status (new, in progress, resolved, false positive, suppressed), assignee, notes, history, bulk actions |
-| Cases | Create a case from one or more alerts (alert drawer or bulk action). Checklist (default tasks editable on the Data page), owner, due date, activity log, link or unlink alerts, close with a resolution (open alerts can be resolved with it), reopen, **Export report** (printable page, save as PDF from the print dialog). The dashboard shows status, overdue, ownerless, age, opened vs closed per week, time to close, severity, owners and resolutions |
+| Cases | Create a case from one or more alerts (alert drawer or bulk action). Checklist (default tasks editable on the Data page; every step has a **Result** field for what you found or decided, up to 2,000 characters, saved when you leave the field and noted in the activity log), owner, due date, activity log, link or unlink alerts, close with a resolution (open alerts can be resolved with it), reopen, **Export report** (printable page, save as PDF from the print dialog). The dashboard shows status, overdue, ownerless, age, opened vs closed per week, time to close, severity, owners and resolutions |
 | Detections | Tune the six rules; suppression rules for known-benign patterns; alerts keep their triage state when rules run again |
 | Event catalog | Severity and category per event type. Defaults are a starting point, adjust to your TARA |
 | Data | Sync from CycurGUARD, import (CSV, XLSX, JSON), import history, data quality, settings |
@@ -41,7 +41,7 @@ For patterns you have judged harmless (for example an event type that a bench to
 
 ## Case report
 
-**Export report** on a case opens a printable page: facts, summary, findings and decision, vehicles with their decoded VIN, linked alerts, checklist and the full activity log, all in UTC. Use the browser's print dialog and choose Save as PDF. Each export is written to the audit log (`case.report`). Text from the case is HTML-escaped; the page needs no network.
+**Export report** on a case opens a printable page: facts, summary, findings and decision, vehicles with their decoded VIN, linked alerts, checklist with each step's result and who completed it, and the full activity log, all in UTC. Use the browser's print dialog and choose Save as PDF. Each export is written to the audit log (`case.report`). Text from the case is HTML-escaped; the page needs no network.
 
 ## VIN decoding
 

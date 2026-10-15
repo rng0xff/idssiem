@@ -234,7 +234,7 @@ pre { background: var(--panel2); border: 1px solid var(--line); border-radius: 6
 .field > span { display: block; font-size: 12px; color: var(--ink2); margin-bottom: 3px; font-weight: 500; }
 .field input, .field select { width: 100%; }
 .tasklist { list-style: none; margin: 10px 0 0; padding: 0; }
-.tasklist li { display: flex; gap: 10px; align-items: flex-start; padding: 7px 0; border-bottom: 1px solid var(--line); }
+.tasklist li { flex-wrap: wrap; display: flex; gap: 10px; align-items: flex-start; padding: 7px 0; border-bottom: 1px solid var(--line); }
 .tasklist li:last-child { border-bottom: 0; }
 .tasklist li.done .tt { text-decoration: line-through; color: var(--ink3); }
 .tasklist input[type=checkbox] { margin-top: 3px; width: 16px; height: 16px; flex: none; }
@@ -319,3 +319,7 @@ body.locked #auth { display: flex; min-height: 100vh; align-items: center; justi
 .reccodes { margin: 6px 0 8px; columns: 2; column-gap: 28px; font-size: 14px; letter-spacing: .03em; }
 #mfapanel code { word-break: break-all; }
 #mfapanel h3 { font-size: 14px; }
+
+.tasklist .taskres { flex: 0 0 100%; margin: 0 0 0 26px; width: calc(100% - 26px); box-sizing: border-box; font: inherit; font-size: 13px; padding: 4px 8px; resize: vertical; min-height: 28px; background: transparent; border: 1px solid transparent; border-radius: 4px; }
+.tasklist .taskres:hover, .tasklist .taskres:focus { border-color: var(--line); background: var(--panel, transparent); }
+.tasklist li.done .taskres { text-decoration: none; }
