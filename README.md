@@ -30,6 +30,10 @@ Data is stored in `data/siem.db` (SQLite). Set `IDS_SIEM_DB` to use another path
 
 Alert and case titles are real links. Right-click and choose "Open in new tab" (or Ctrl/Cmd-click, or middle-click) to open the alert drawer or the case in its own tab. A normal click works as before.
 
+## Alert and case coverage of events
+
+The event list has an "Alert, case" column and two filters, **Alert** (covered / not covered) and **Case** (in a case / not in a case). An alert covers an event when the event lies inside the alert's own filter (vehicle, event type, ECU, time window), the same events you get from "show events" on the alert. An event is "in a case" when one of its covering alerts is linked to that case. The event drawer lists the covering alerts. This is computed live, so it also works for events that were imported before.
+
 ## Suggested cases
 
 An alert that is in no case shows **May belong to an existing case** when a case already contains an alert for the same vehicle and event type (for fleet-wide alerts: the same detection) with activity within 30 days of this one. Up to three cases are suggested, open ones first; a closed case is shown with its outcome and has to be reopened before alerts can be added. **Add to case #N** links the alert (analysts and admins; it is written to the audit log). Nothing is ever linked automatically. The alert list shows *maybe #N* in the Case column for new and in-progress alerts with an open suggestion.

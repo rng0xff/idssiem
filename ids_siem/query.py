@@ -50,6 +50,33 @@ def _to_ms(v, end=False):
     return ms
 
 
+ALERT_MATCH = ("(a.f_vin IS NULL OR a.f_vin = e.vin) AND (a.f_cat IS NULL OR a.f_cat = e.cat_id) "
+               "AND (a.f_ecu IS NULL OR a.f_ecu = e.ecu_name) "
+               "AND (a.f_from IS NULL OR (e.ts_ok = 1 AND e.ts >= CAST(a.f_from AS INTEGER))) "
+               "AND (a.f_to IS NULL OR (e.ts_ok = 1 AND e.ts <= CAST(a.f_to AS INTEGER)))")
+
+
+def _covering(events):
+    """Alerts (with their case) whose filter contains each event, added to the events as "alerts"."""
+    for e in events:
+        e["alerts"] = []
+    vins = sorted({e["vin"] for e in events})
+    if not vins:
+        return events
+    found = rows("SELECT a.id, a.status, a.severity, a.title, a.f_vin, a.f_cat, a.f_ecu, a.f_from, a.f_to, ca.case_id "
+                 "FROM alerts a LEFT JOIN case_alerts ca ON ca.alert_id = a.id "
+                 f"WHERE a.f_vin IS NULL OR a.f_vin IN ({','.join('?' * len(vins))}) ORDER BY a.sev_num DESC, a.id", vins)
+    for e in events:
+        for a in found:
+            if a["f_vin"] not in (None, e["vin"]) or a["f_cat"] not in (None, e["cat_id"]) or a["f_ecu"] not in (None, e["ecu_name"]):
+                continue
+            if (a["f_from"] is not None or a["f_to"] is not None):
+                if not e["ts_ok"] or (a["f_from"] is not None and e["ts"] < int(a["f_from"])) or (a["f_to"] is not None and e["ts"] > int(a["f_to"])):
+                    continue
+            e["alerts"].append({k: a[k] for k in ("id", "status", "severity", "title", "case_id")})
+    return events
+
+
 def build_where(p):
     """p: dict of query params (values are lists). Returns (where_sql, args)."""
     def one(k):
@@ -89,6 +116,13 @@ def build_where(p):
         w.append("e.ts_ok = 1")
     elif tsq == "invalid":
         w.append("e.ts_ok = 0")
+
+    # coverage: is the event inside the filter of an alert, and is that alert in a case
+    al, cs = one("alert"), one("case")
+    if al in ("any", "none"):
+        w.append(("" if al == "any" else "NOT ") + f"EXISTS (SELECT 1 FROM alerts a WHERE {ALERT_MATCH})")
+    if cs in ("any", "none"):
+        w.append(("" if cs == "any" else "NOT ") + f"EXISTS (SELECT 1 FROM alerts a JOIN case_alerts ca ON ca.alert_id = a.id WHERE {ALERT_MATCH})")
 
     q = (one("q") or "").strip()
     for m in TOKEN_RE.finditer(q):
@@ -148,7 +182,7 @@ def search_events(p):
     order = SORTABLE.get(sort, SORTABLE["ts"]).format(d=d)
     total = one_val(f"SELECT COUNT(*) {BASE} WHERE {where}", args)
     data = rows(f"SELECT {EVENT_COLS} {BASE} WHERE {where} ORDER BY {order} LIMIT ? OFFSET ?", args + [size, (page - 1) * size])
-    return {"total": total, "page": page, "size": size, "events": data}
+    return {"total": total, "page": page, "size": size, "events": _covering(data)}
 
 
 def iter_events_for_export(p):
@@ -174,6 +208,7 @@ def get_event(eid):
         extra = json.loads(x["extra"]) if x and x["extra"] else {}
     except ValueError:
         extra = {}
+    ev["alerts"] = _covering([ev])[0]["alerts"]
     ev["backend"] = extra
     ev["configured"] = sevconfig.describe(ev["ecu_id"], ev["event_id"], extra)
     # neighbours on the same vehicle (±1 h around this event, otherwise the 10 most recent)

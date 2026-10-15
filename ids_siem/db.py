@@ -187,6 +187,11 @@ def init():
         c.execute("ALTER TABLE case_tasks ADD COLUMN result TEXT DEFAULT ''")  # what the step found or decided
     if "extra" not in {r["name"] for r in c.execute("PRAGMA table_info(events)")}:
         c.execute("ALTER TABLE events ADD COLUMN extra TEXT")  # backend details (context data, counters), JSON
+    have_a = {r["name"] for r in c.execute("PRAGMA table_xinfo(alerts)")}
+    for col, path in (("f_vin", "vin"), ("f_cat", "cat"), ("f_ecu", "ecu"), ("f_from", "from"), ("f_to", "to")):
+        if col not in have_a:  # the event filter of an alert, readable as a column (needs SQLite 3.31+)
+            c.execute(f"ALTER TABLE alerts ADD COLUMN {col} TEXT GENERATED ALWAYS AS (json_extract(filter, '$.{path}')) VIRTUAL")
+    c.execute("CREATE INDEX IF NOT EXISTS ix_al_fvin ON alerts(f_vin)")
     c.commit()
 
 

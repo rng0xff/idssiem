@@ -2,7 +2,7 @@
 'use strict';
 
 const view = $('#view');
-const FILTER_KEYS = ['ecu', 'type', 'severity', 'category', 'vin_prefix', 'cat', 'vin', 'import_id', 'from', 'to', 'ts'];
+const FILTER_KEYS = ['ecu', 'type', 'severity', 'category', 'vin_prefix', 'cat', 'vin', 'import_id', 'from', 'to', 'ts', 'alert', 'case'];
 const LIST_KEYS = new Set(['ecu', 'type', 'severity', 'category', 'vin_prefix', 'cat']);
 const FACET_TITLES = { severity: 'Severity', ecu: 'ECU', type: 'Report type', category: 'Category', cat: 'Event', vin_prefix: 'VIN prefix (first 6)' };
 
@@ -56,6 +56,14 @@ async function refreshChrome() {
 }
 
 /* ---------------------------------------------------------------- shared bits */
+function coverHtml(e) {
+  const al = e.alerts || [];
+  if (!al.length) return '<span class="muted">none</span>';
+  const cases = [...new Set(al.map(a => a.case_id).filter(Boolean))];
+  const shown = al.slice(0, 2).map(a => `<a href="#/alerts/${a.id}" data-stop title="${esc(a.title)} (${esc(a.status)})">#${a.id}</a>`).join(' ');
+  return `${shown}${al.length > 2 ? ` <span class="muted">+${al.length - 2}</span>` : ''}${cases.length ? ` <span class="muted">in</span> ${cases.slice(0, 2).map(c => `<a href="#/cases/${c}" data-stop>case #${c}</a>`).join(' ')}${cases.length > 2 ? ` <span class="muted">+${cases.length - 2}</span>` : ''}` : ''}`;
+}
+
 function eventRowsHtml(events) {
   return events.map(e => `<tr class="row" data-id="${e.id}">
     <td class="nowrap mono">${fmtTs(e.ts, e.ts_ok)}</td>
@@ -64,6 +72,7 @@ function eventRowsHtml(events) {
     <td>${esc(e.ecu_name) || '<span class="muted">none</span>'}</td>
     <td class="mono"><a href="${hashFor('vehicle', {}, e.vin)}" data-stop>${esc(e.vin)}</a></td>
     <td class="muted">${esc(e.event_type)}</td>
+    <td class="nowrap">${coverHtml(e)}</td>
     <td class="desc" title="${esc(e.description)}">${esc(e.description)}</td></tr>`).join('');
 }
 function pagerHtml(total, page, size) {
@@ -176,7 +185,9 @@ ROUTES.events = async function (_, P) {
       if (k === 'cat') label = catLabel[v] || v;
       if ((k === 'from' || k === 'to') && /^\d+$/.test(v)) label = fmtMin(+v) + ' UTC';
       if (k === 'ts') label = v === 'valid' ? 'has valid time' : 'no valid time';
-      const name = { vin_prefix: 'VIN prefix', import_id: 'import', cat: 'event', type: 'report type', from: 'from', to: 'to', ts: 'time' }[k] || k;
+      if (k === 'alert') label = v === 'any' ? 'covered by an alert' : 'not covered by an alert';
+      if (k === 'case') label = v === 'any' ? 'in a case' : 'not in a case';
+      const name = { vin_prefix: 'VIN prefix', import_id: 'import', cat: 'event', type: 'report type', from: 'from', to: 'to', ts: 'time', alert: 'alert', case: 'case' }[k] || k;
       chips.push(`<span class="chip">${esc(name)}: ${esc(label)}<button data-rm="${esc(k)}|${esc(v)}" aria-label="Remove filter ${esc(name)} ${esc(label)}">×</button></span>`);
     }
   }
@@ -189,6 +200,8 @@ ROUTES.events = async function (_, P) {
     <label>From <input type="text" id="from" value="${esc(dateVal(raw.from))}" placeholder="2025-05-01" size="16"></label>
     <label>To <input type="text" id="to" value="${esc(dateVal(raw.to))}" placeholder="2025-05-31" size="16"></label>
     <span class="muted">UTC</span>
+    <label>Alert <select id="falert"><option value="">any</option><option value="any" ${raw.alert === 'any' ? 'selected' : ''}>covered</option><option value="none" ${raw.alert === 'none' ? 'selected' : ''}>not covered</option></select></label>
+    <label>Case <select id="fcase"><option value="">any</option><option value="any" ${raw.case === 'any' ? 'selected' : ''}>in a case</option><option value="none" ${raw.case === 'none' ? 'selected' : ''}>not in a case</option></select></label>
     <button class="btn primary" type="submit">Search</button>
     ${Object.keys(filt).length ? '<button class="btn" type="button" id="clear">Clear all</button>' : ''}
   </form>
@@ -202,13 +215,15 @@ ROUTES.events = async function (_, P) {
     }).join('')}</div>
     <div>
       ${res.events.length ? `<div class="tablewrap"><table><thead><tr>
-        ${sortHeader('Time (UTC)', 'ts', sort, dir)}${sortHeader('Severity', 'severity', sort, dir)}${sortHeader('Event', 'event', sort, dir)}${sortHeader('ECU', 'ecu', sort, dir)}${sortHeader('Vehicle', 'vin', sort, dir)}${sortHeader('Type', 'type', sort, dir)}<th>Description</th></tr></thead>
+        ${sortHeader('Time (UTC)', 'ts', sort, dir)}${sortHeader('Severity', 'severity', sort, dir)}${sortHeader('Event', 'event', sort, dir)}${sortHeader('ECU', 'ecu', sort, dir)}${sortHeader('Vehicle', 'vin', sort, dir)}${sortHeader('Type', 'type', sort, dir)}<th>Alert, case</th><th>Description</th></tr></thead>
         <tbody id="tb">${eventRowsHtml(res.events)}</tbody></table></div>${pagerHtml(res.total, res.page, res.size)}`
         : '<div class="panel"><div class="empty"><b>No events match</b>Remove a filter or widen the time range.</div></div>'}
     </div></div>`;
 
   const nav = patch => { const n = { ...filt, sort, dir, ...patch }; Object.keys(n).forEach(k => (n[k] === '' || n[k] == null) && delete n[k]); go('events', n); };
   $('#sf').addEventListener('submit', e => { e.preventDefault(); nav({ q: $('#q').value.trim(), from: $('#from').value.trim(), to: $('#to').value.trim(), page: undefined }); });
+  $('#falert').addEventListener('change', e => nav({ alert: e.target.value, page: undefined }));
+  $('#fcase').addEventListener('change', e => nav({ case: e.target.value, page: undefined }));
   const clear = $('#clear'); if (clear) clear.addEventListener('click', () => go('events', {}));
   view.onclick = e => {
     const rm = e.target.closest('[data-rm]');
@@ -289,6 +304,7 @@ async function openEvent(id) {
       <dt>Vehicle</dt><dd class="mono"><a href="${hashFor('vehicle', {}, e.vin)}">${esc(e.vin)}</a></dd>
       <dt>ECU</dt><dd>${esc(e.ecu_name) || '<span class="muted">none</span>'}${e.ecu_id !== '' ? ` <span class="muted">id ${esc(e.ecu_id)}</span>` : ''}</dd>
       <dt>Report type</dt><dd>${esc(e.event_type)}</dd>
+      <dt>Alerts and case</dt><dd>${(e.alerts || []).length ? e.alerts.map(a => `<div><a href="#/alerts/${a.id}">#${a.id}</a> ${esc(a.title)} <span class="muted">${esc(statusLabel(a.status))}${a.case_id ? `, <a href="#/cases/${a.case_id}">case #${a.case_id}</a>` : ', no case'}</span></div>`).join('') : '<span class="muted">Not covered by any alert</span>'}</dd>
       <dt>Event ID</dt><dd>${esc(e.event_id)}</dd>
       <dt>Name</dt><dd class="mono">${esc(e.name) || '<span class="muted">empty</span>'}</dd>
       <dt>Description</dt><dd>${esc(e.description) || '<span class="muted">empty</span>'}</dd>
