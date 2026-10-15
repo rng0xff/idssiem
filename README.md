@@ -34,11 +34,11 @@ Alert and case titles are real links. Right-click and choose "Open in new tab" (
 
 The event list has an "Alert, case" column and two filters, **Alert** (covered / not covered) and **Case** (in a case / not in a case). An alert covers an event when the event lies inside the alert's own filter (vehicle, event type, ECU, time window), the same events you get from "show events" on the alert. An event is "in a case" when one of its covering alerts is linked to that case. The event drawer lists the covering alerts. The link between alerts and events is stored when the detections run (and built once for an existing database on start), so the filters stay fast with hundreds of thousands of events.
 
-Cases created before the checklist was changed keep their old steps. **Data, Settings, Add missing steps to open cases** (administrator) appends the steps of the default list that an open case does not have yet, after a confirmation that shows the numbers. Existing steps, results and order are not touched and closed cases are skipped.
+Cases created before the checklist was changed keep their old steps. **Data, Settings, Add missing steps to open cases** (administrator) adds the steps of the default list that an open case does not have yet, each one after the step that precedes it in the list, after a confirmation that shows the numbers. Existing steps and results are kept and closed cases are skipped.
 
 ## Technical experts
 
-In a case, the panel **Technical experts** documents who you asked, for example the system or component owner from the checklist step: name, organisation, system or component, contact, date consulted and what the expert said. Entries can be edited and removed. Every change is written to the activity log of the case and to the audit log, and the experts are listed in the case report.
+In a case, the panel **Technical experts** documents who you asked, for example the system or component owner from the checklist (the default checklist has the step "Document the technical experts you consulted" before the impact assessment): name, organisation, system or component, contact, date consulted and what the expert said. Entries can be edited and removed. Every change is written to the activity log of the case and to the audit log, and the experts are listed in the case report.
 
 ## Related cases
 

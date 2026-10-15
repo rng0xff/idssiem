@@ -151,6 +151,7 @@ DEFAULT_SETTINGS = {
         "Review the linked events and the vehicle history",
         "Check whether other vehicles show the same pattern",
         "Confirm with system or component owner",
+        "Document the technical experts you consulted",
         "Assess the impact on TARA threat scenarios and CSMS",
         "Decide on the response and whether reporting is needed",
         "Document the findings",

@@ -279,14 +279,15 @@ def add_task(cid, body):
 
 def sync_default_tasks(body):
     """Add the steps of the default checklist that an open case does not have yet (matched by title).
-    Missing steps are appended at the end; existing steps, results and order are not touched. Closed cases are skipped."""
+    Each missing step is placed after the step that precedes it in the default list; existing steps and results are kept. Closed cases are skipped."""
     dry = bool(body.get("dry_run"))
     defaults = [t for t in db.get_settings().get("case_tasks", []) if t]
     c = db.conn()
     now = db.now_ms()
     touched = added = 0
     for r in c.execute("SELECT id FROM cases WHERE status != 'closed' ORDER BY id").fetchall():
-        have = {(t["title"] or "").strip().lower() for t in c.execute("SELECT title FROM case_tasks WHERE case_id=?", (r["id"],))}
+        rows = [dict(t) for t in c.execute("SELECT id, title FROM case_tasks WHERE case_id=? ORDER BY position, id", (r["id"],))]
+        have = {(t["title"] or "").strip().lower() for t in rows}
         missing = [t for t in defaults if t.strip().lower() not in have]
         if not missing:
             continue
@@ -294,9 +295,18 @@ def sync_default_tasks(body):
         added += len(missing)
         if dry:
             continue
-        pos = c.execute("SELECT COALESCE(MAX(position), -1) + 1 FROM case_tasks WHERE case_id=?", (r["id"],)).fetchone()[0]
-        for i, t in enumerate(missing):
-            c.execute("INSERT INTO case_tasks(case_id, title, position) VALUES(?,?,?)", (r["id"], t, pos + i))
+        # each missing step goes right after the step that precedes it in the default list, or first if none is there
+        order = [t["id"] for t in rows]
+        titles = {t["id"]: (t["title"] or "").strip().lower() for t in rows}
+        for t in missing:
+            k = defaults.index(t)
+            prev = {d.strip().lower() for d in defaults[:k]}
+            at = max((i + 1 for i, tid in enumerate(order) if titles[tid] in prev), default=0)
+            cur = c.execute("INSERT INTO case_tasks(case_id, title, position) VALUES(?,?,0)", (r["id"], t))
+            order.insert(at, cur.lastrowid)
+            titles[cur.lastrowid] = t.strip().lower()
+        for i, tid in enumerate(order):
+            c.execute("UPDATE case_tasks SET position=? WHERE id=?", (i, tid))
         _log(c, r["id"], "system", f"{_who()} added missing default steps: " + "; ".join(missing), now, action="case.task")
         c.execute("UPDATE cases SET updated_at=? WHERE id=?", (now, r["id"]))
     if not dry:
