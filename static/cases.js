@@ -158,7 +158,7 @@ async function viewCase(id, keepScroll = false) {
         <label class="field" style="margin:0"><span>Summary, what happened and what is known</span><textarea data-f="summary" rows="4" placeholder="Describe the situation, the suspected cause and what you have ruled out">${esc(c.summary)}</textarea></label></div>
       <div class="panel"><h2 style="margin-bottom:6px">Checklist</h2>${progressHtml(c.tasks_done, c.tasks_total, true)}
         <p class="muted" style="margin:6px 0 0">${c.tasks_done} of ${c.tasks_total} done</p>
-        <ul class="tasklist">${c.tasks.map(t => `<li class="${t.done ? 'done' : ''}"><input type="checkbox" data-task="${t.id}" ${t.done ? 'checked' : ''} aria-label="${esc(t.title)}"><span class="tt">${esc(t.title)}</span>${t.done ? `<span class="who">${esc(t.done_by)}, ${esc(fmtDay(t.done_at))}</span>` : ''}<button class="btn ghost small" data-deltask="${t.id}" title="Remove task" aria-label="Remove task">×</button><textarea class="taskres" data-tres="${t.id}" rows="${t.result ? Math.min(6, Math.max(2, t.result.split('\n').length)) : 1}" maxlength="2000" spellcheck="false" placeholder="Result: what did you find or decide?" aria-label="Result of: ${esc(t.title)}">${esc(t.result || '')}</textarea></li>`).join('') || '<li class="muted">No tasks yet.</li>'}</ul>
+        <ul class="tasklist">${c.tasks.map(t => `<li class="${t.done ? 'done' : ''}" data-tid="${t.id}"><span class="grip" title="Drag to change the order" aria-hidden="true">&#8942;&#8942;</span><input type="checkbox" data-task="${t.id}" ${t.done ? 'checked' : ''} aria-label="${esc(t.title)}"><span class="tt">${esc(t.title)}</span>${t.done ? `<span class="who">${esc(t.done_by)}, ${esc(fmtDay(t.done_at))}</span>` : ''}<button class="btn ghost small mv" data-mv="-1" data-tid="${t.id}" title="Move up" aria-label="Move up: ${esc(t.title)}">&#9650;</button><button class="btn ghost small mv" data-mv="1" data-tid="${t.id}" title="Move down" aria-label="Move down: ${esc(t.title)}">&#9660;</button><button class="btn ghost small" data-deltask="${t.id}" title="Remove task" aria-label="Remove task">×</button><textarea class="taskres" data-tres="${t.id}" rows="${t.result ? Math.min(6, Math.max(2, t.result.split('\n').length)) : 1}" maxlength="2000" spellcheck="false" placeholder="Result: what did you find or decide?" aria-label="Result of: ${esc(t.title)}">${esc(t.result || '')}</textarea></li>`).join('') || '<li class="muted">No tasks yet.</li>'}</ul>
         <div class="addrow"><input type="text" id="newtask" placeholder="Add a task" aria-label="New task"><button class="btn" data-cact="addtask">Add task</button></div></div>
       <div class="panel"><div class="page-head" style="margin-bottom:8px"><h2 style="margin:0">Linked alerts</h2><span class="sub">${c.alerts.length} alert${c.alerts.length === 1 ? '' : 's'}, ${c.open_alerts} still open</span><span class="spacer"></span>${closed ? '' : '<button class="btn small" data-cact="addalerts">Add alerts</button>'}</div>
         ${c.alerts.length ? `<div class="tablewrap"><table><thead><tr><th>Severity</th><th>Alert</th><th>Vehicle</th><th class="num">Events</th><th>Status</th><th></th></tr></thead><tbody>${c.alerts.map(a => `<tr class="row" data-goto="${hashFor('alerts', {}, a.id)}"><td>${sevHtml(a.severity)}</td><td><a class="rowlink" href="${hashFor('alerts', {}, a.id)}">${esc(a.title)}</a></td><td class="mono">${a.vin ? `<a href="${hashFor('vehicle', {}, a.vin)}" data-stop>${esc(a.vin)}</a>` : '<span class="muted">fleet</span>'}</td><td class="num">${fmtN(a.event_count)}</td><td>${statusHtml(a.status)}</td><td><button class="btn ghost small" data-unlink="${a.id}" title="Remove from case" aria-label="Remove alert from case">×</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">No alerts linked.</div>'}</div>
@@ -198,7 +198,23 @@ async function viewCase(id, keepScroll = false) {
     if (tr) { api(`/api/cases/${id}/tasks/${tr}`, { method: 'PATCH', json: { result: e.target.value } }).then(nc => { $('.timeline').innerHTML = timelineHtml(nc); toast('Result saved'); }).catch(err => { toast(err.message, true); reload(); }); return; }
     const t = e.target.dataset.task; if (t) { api(`/api/cases/${id}/tasks/${t}`, { method: 'PATCH', json: { done: e.target.checked } }).then(reload).catch(err => toast(err.message, true)); }
   };
+  const saveOrder = async ids => {
+    try { await api(`/api/cases/${id}/tasks/order`, { method: 'POST', json: { ids } }); await reload(); } catch (err) { toast(err.message, true); reload(); }
+  };
+  const taskIds = () => [...view.querySelectorAll('.tasklist li[data-tid]')].map(li => +li.dataset.tid);
+  let dragLi = null;
+  view.onmousedown = e => { const g = e.target.closest && e.target.closest('.grip'); if (g) g.closest('li').draggable = true; };
+  view.onmouseup = () => view.querySelectorAll('.tasklist li[draggable=true]').forEach(li => { if (li !== dragLi) li.draggable = false; });
+  view.ondragstart = e => { const li = e.target.closest && e.target.closest('.tasklist li[data-tid]'); if (!li || !e.target.closest('.grip') && e.target !== li) return; dragLi = li; li.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', li.dataset.tid); };
+  view.ondragover = e => {
+    if (!dragLi) return; const li = e.target.closest('.tasklist li[data-tid]'); if (!li || li === dragLi) return; e.preventDefault();
+    const r = li.getBoundingClientRect(); li.parentNode.insertBefore(dragLi, e.clientY < r.top + r.height / 2 ? li : li.nextSibling);
+  };
+  view.ondrop = e => { if (dragLi) e.preventDefault(); };
+  view.ondragend = () => { if (!dragLi) return; dragLi.classList.remove('dragging'); dragLi.draggable = false; dragLi = null; saveOrder(taskIds()); };
   view.onclick = async e => {
+    const mv = e.target.closest('[data-mv]');
+    if (mv) { const ids = taskIds(), i = ids.indexOf(+mv.dataset.tid), j = i + +mv.dataset.mv; if (j < 0 || j >= ids.length) return; [ids[i], ids[j]] = [ids[j], ids[i]]; await saveOrder(ids); return; }
     const goto = e.target.closest('[data-goto]'); const ul = e.target.closest('[data-unlink]'); const dt = e.target.closest('[data-deltask]');
     if (ul) { try { await api(`/api/cases/${id}/alerts/${ul.dataset.unlink}`, { method: 'DELETE' }); toast('Alert removed from the case'); await reload(); } catch (err) { toast(err.message, true); } return; }
     const uc = e.target.closest('[data-unlinkcase]'); const ls = e.target.closest('[data-linksim]');

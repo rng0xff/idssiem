@@ -607,6 +607,11 @@ def api_case_task_add(h, p, cid):
     return _case_call(cases.add_task, int(cid), h.json_body())
 
 
+@route("POST", r"/api/cases/(\d+)/tasks/order")
+def api_case_task_order(h, p, cid):
+    return _case_call(cases.reorder_tasks, int(cid), h.json_body())
+
+
 @route("PATCH", r"/api/cases/(\d+)/tasks/(\d+)")
 def api_case_task_update(h, p, cid, tid):
     return _case_call(cases.update_task, int(cid), int(tid), h.json_body())

@@ -308,6 +308,28 @@ def update_task(cid, tid, body):
     return get_case(cid)
 
 
+def reorder_tasks(cid, body):
+    """New order of the checklist: body {"ids": [task ids, all of them, in the new order]}."""
+    c = db.conn()
+    now = db.now_ms()
+    _case_or_404(c, cid)
+    try:
+        ids = [int(x) for x in (body.get("ids") or [])]
+    except (TypeError, ValueError):
+        raise ValueError("ids must be task numbers")
+    have = [r["id"] for r in c.execute("SELECT id FROM case_tasks WHERE case_id=? ORDER BY position, id", (cid,))]
+    if sorted(ids) != sorted(have):
+        raise ValueError("the list must contain every task of the case exactly once")
+    if ids == have:
+        return get_case(cid)
+    for pos, tid in enumerate(ids):
+        c.execute("UPDATE case_tasks SET position=? WHERE id=? AND case_id=?", (pos, tid, cid))
+    _log(c, cid, "system", f"{_who()} changed the order of the checklist", now, action="case.task")
+    c.execute("UPDATE cases SET updated_at=? WHERE id=?", (now, cid))
+    c.commit()
+    return get_case(cid)
+
+
 def delete_task(cid, tid):
     c = db.conn()
     now = db.now_ms()

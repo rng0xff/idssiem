@@ -34,7 +34,7 @@ async function render() {
 async function renderOnce() {
   closeDrawer();
   clearTimeout(window.__syncTimer);
-  view.onclick = view.oninput = view.onchange = view.onkeydown = null;
+  view.onclick = view.oninput = view.onchange = view.onkeydown = view.onmousedown = view.onmouseup = view.ondragstart = view.ondragover = view.ondrop = view.ondragend = null;
   window.__reloadAlerts = null;
   const { name, arg, params } = parseHash();
   if (ME.mfa_setup && name !== 'account') { location.hash = '#/account'; return; }
