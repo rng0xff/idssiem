@@ -45,7 +45,7 @@ def heading_pages(doc,pages):
 def main(facts_path,cfg_path,outdir):
     F=json.load(open(facts_path,encoding='utf8')); cfg=json.load(open(cfg_path,encoding='utf8'))
     os.makedirs(outdir,exist_ok=True)
-    base='%s-%s'%(cfg['docNumber'],cfg['fileTitle'])
+    base=(cfg['docNumber']+'-' if cfg['docNumber'] else '')+cfg['fileTitle']   # empty docNumber: no number in the file name and the header
     docx=os.path.join(outdir,base+'.docx'); props={'author':cfg['owner'],'footer_name':base+'.docx'}
     soffice=find_soffice(); pages={}; pdf=None
     for it in range(2 if soffice else 1):

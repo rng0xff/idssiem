@@ -107,7 +107,6 @@ if not last or last['version'] != tool['version']:
                    desc=('Re-validation for %s (commit %s); test report, checksums and evidence updated' % (tool['version'], tool['sourceCommitShort'])) if last else 'Creation of document',
                    editor=opt('--editor', cfg['owner']), date=now.strftime('%d.%m.%Y'), version=tool['version'])
 shown = history + ([pending] if pending else [])
-if 'XXXX' in cfg['docNumber']: print('NOTE: document number is still a placeholder – set docNumber in tools/release-report/config.json')
 
 # ---- 6. generate
 facts = dict(tool=tool, run=run, deps=deps, files=files, tests=tests, example=example, manual=manual, history=shown, revision=shown[-1]['rev'])
@@ -115,7 +114,7 @@ OUT = os.path.abspath(opt('--out', os.path.join(ROOT, 'docs'))); os.makedirs(OUT
 fp = os.path.join(tempfile.mkdtemp(prefix='release-report-'), 'facts.json'); json.dump(facts, open(fp, 'w', encoding='utf8'), indent=1)
 g = subprocess.run([sys.executable, os.path.join(RR, 'generate.py'), fp, os.path.join(RR, 'config.json'), OUT])
 if g.returncode: die('generate.py failed (exit %d)' % g.returncode)
-keep = cfg['docNumber'] + '-' + cfg['fileTitle']
+keep = (cfg['docNumber'] + '-' if cfg['docNumber'] else '') + cfg['fileTitle']
 for f in os.listdir(OUT):
     m = re.match(r'^(CORP-.+?)-(.+)\.(docx|pdf)$', f)
     if m and m.group(2) == cfg['fileTitle'] and m.group(1) + '-' + m.group(2) != keep: os.remove(os.path.join(OUT, f)); print('removed old file ' + f)
