@@ -125,6 +125,19 @@ class TestRules(DbCase):
         self.assertEqual(self.alerts("burst"), [])
 
 
+class TestWorkedExample(DbCase):
+    def test_worked_example_file_gives_one_burst_alert(self):
+        """tests/data/worked_example.csv is the data of the worked example in the tool management record (chapter 6, TC-M03)."""
+        import os
+        from ids_siem import ingest
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "worked_example.csv")
+        data = open(path, "rb").read()
+        ingest.import_rows(ingest.rows_for_file("worked_example.csv", data), "worked_example.csv")
+        a = self.alerts()
+        self.assertEqual([(x["rule"], x["title"], x["severity"], x["event_count"]) for x in a],
+                         [("burst", "3\u00d7 INVALID_SIG within 45 min", "high", 3)])
+
+
 class TestSuppressionAndLifecycle(DbCase):
     def test_suppression_marks_alert_suppressed(self):
         self.load([ev(eid=32795)])

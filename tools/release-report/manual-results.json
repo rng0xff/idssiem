@@ -1,0 +1,13 @@
+{
+  "_comment": "Result of the manual test cases per release. Format: \"TC-M01\": {\"result\": \"passed\"|\"failed\", \"version\": \"<version of the record>\", \"date\": \"dd.mm.yyyy\", \"by\": \"name\"}. A result counts only for the version it was recorded for.",
+  "TC-M01": {},
+  "TC-M02": {},
+  "TC-M03": {},
+  "TC-M04": {},
+  "TC-M05": {},
+  "TC-M06": {},
+  "TC-M07": {},
+  "TC-M08": {},
+  "TC-M09": {},
+  "TC-M10": {}
+}
