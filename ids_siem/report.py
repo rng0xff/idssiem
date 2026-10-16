@@ -1,11 +1,20 @@
 """Printable case report: one self-contained HTML page (no scripts needed, print or save as PDF from the browser)."""
 import datetime
+import re
 from html import escape as e
 
 from . import auth, cases, db, vin as vinmod
 
 
 _TSTATE = {'done': '&#9745; completed', 'ongoing': '&#9654; ongoing', 'waiting': '&#8987; waiting for reply'}
+
+
+def _filename(title, cid):
+    """The browser proposes the page title as the file name when the report is saved as PDF: the case title,
+    without characters a file name cannot hold."""
+    t = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', " ", str(title or ""))
+    t = re.sub(r"\s+", " ", t).strip(" .")[:100].strip(" .")
+    return t or f"Case {cid}"
 
 
 def _t(ms, day=False):
@@ -73,7 +82,7 @@ def render(cid):
           ("Vehicles", str(len(veh)) or "0")]
 
     parts = [f"<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
-             f"<title>Case #{d['id']} report</title><style>{CSS}</style></head><body>",
+             f"<title>{e(_filename(d['title'], d['id']))}</title><style>{CSS}</style></head><body>",
              "<div class='bar'><button id='print' type='button'>Print or save as PDF</button><span class='muted'>Use the print dialog and choose Save as PDF.</span></div>",
              "<main>",
              f"<h1>Case #{d['id']}: {e(d['title'])}</h1>",

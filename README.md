@@ -71,7 +71,7 @@ For patterns you have judged harmless (for example an event type that a bench to
 
 ## Case report
 
-**Export report** on a case opens a printable page: facts, summary, findings and decision, vehicles with their decoded VIN, linked alerts, checklist with each step's result and who completed it, and the full activity log, all in UTC. Use the browser's print dialog and choose Save as PDF. Each export is written to the audit log (`case.report`). Text from the case is HTML-escaped; the page needs no network.
+**Export report** on a case opens a printable page: facts, summary, findings and decision, vehicles with their decoded VIN, linked alerts, checklist with each step's result and who completed it, and the full activity log, all in UTC. Use the browser's print dialog and choose Save as PDF. Each export is written to the audit log (`case.report`). Text from the case is HTML-escaped; the page needs no network. The page title is the case title (without characters a file name cannot hold), so the browser proposes it as the file name when you save the report as PDF.
 
 ## VIN decoding
 
