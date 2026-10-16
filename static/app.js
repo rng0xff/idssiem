@@ -587,9 +587,11 @@ ROUTES.data = async function () {
 <pre>curl -X POST http://localhost:${location.port || 8765}/api/ingest?source=backend \\
   -H "X-SIEM: 1" -H "Content-Type: application/json" \\
   -d '[{"report.event_type":"can","sev_metadata.timestamp":1754754669000,"vin":"SC6GN3DAXSF023632","ecu_name":"ETGW","ecu_id":1,"sev_metadata.event_id":32775,"sev_metadata.name":"IdsMEventConfig_ETGW_ECY_IDPS_RPRT_FRQ_DELTA_TOO_HI","sev_metadata.description":"..."}]'</pre></div>
+  <div class="panel" id="backuppanel"></div>
   <div class="panel"><h2>Delete all data</h2><p style="margin-top:0">Removes every event, alert, case and note. Catalog and settings stay.</p><input type="text" id="resetconf" placeholder='Type DELETE ALL EVENTS' size="24"> <button class="btn danger" id="reset">Delete everything</button></div>`;
 
   mountSync();
+  mountBackup();
   const doImport = async file => {
     const box = $('#impres'); box.innerHTML = `<p>Importing ${esc(file.name)} (${(file.size / 1048576).toFixed(1)} MB)…</p>`;
     try {

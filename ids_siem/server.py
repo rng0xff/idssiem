@@ -17,7 +17,7 @@ import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from . import auth, cases, catalog, cycurguard, db, ingest, mfa, query, rules, sevconfig
+from . import auth, backup, cases, catalog, cycurguard, db, ingest, mfa, query, rules, sevconfig
 
 STATIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static")
 MAX_BODY = 1024 * 1024 * 1024
@@ -627,6 +627,63 @@ def api_experts(h, p):
     return cases.known_experts()
 
 
+# ------------------------------------------------------------------ backup and restore (administrator)
+def _backup_call(fn, *a):
+    try:
+        return fn(*a)
+    except backup.BackupError as e:
+        raise HttpError(400, str(e))
+
+
+@route("GET", "/api/backups", level=3)
+def api_backups(h, p):
+    return {"backups": backup.list_backups(), "folder": backup.folder()}
+
+
+@route("POST", "/api/backups", level=3)
+def api_backup_create(h, p):
+    info = _backup_call(backup.create, "")
+    auth.log(auth.current_actor(), "backup.create", f"{info['name']} ({info['size'] / 1048576:.1f} MB)")
+    return info
+
+
+@route("GET", r"/api/backups/([^/]+)/download", level=3)
+def api_backup_download(h, p, name):
+    path = _backup_call(backup.path_of, name)
+    auth.log(auth.current_actor(), "backup.download", name)
+    return ("file", path, "application/vnd.sqlite3", {"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+@route("DELETE", r"/api/backups/([^/]+)", level=3)
+def api_backup_delete(h, p, name):
+    _backup_call(backup.delete, name)
+    auth.log(auth.current_actor(), "backup.delete", name)
+    return {"deleted": name}
+
+
+@route("POST", r"/api/backups/([^/]+)/restore", level=3)
+def api_backup_restore(h, p, name):
+    if str(h.json_body().get("confirm") or "") != backup.CONFIRM:
+        raise HttpError(400, f"type {backup.CONFIRM} to confirm")
+    path = _backup_call(backup.path_of, name)
+    return _backup_call(backup.restore_file, path, auth.current_actor())
+
+
+@route("POST", "/api/backups/upload-restore", level=3)
+def api_backup_upload_restore(h, p):
+    if (p.get("confirm") or [""])[0] != backup.CONFIRM:
+        raise HttpError(400, f"type {backup.CONFIRM} to confirm")
+    tmp = backup.save_upload(h.raw_body())
+    try:
+        return _backup_call(backup.restore_file, tmp, auth.current_actor())
+    finally:
+        for ext in ("", "-wal", "-shm"):
+            try:
+                os.remove(tmp + ext)
+            except OSError:
+                pass
+
+
 @route("POST", "/api/experts/forget")
 def api_experts_forget(h, p):
     return _case_call(cases.forget_expert, h.json_body())
@@ -903,6 +960,25 @@ class Handler(BaseHTTPRequestHandler):
             raise HttpError(400, "invalid JSON body")
         return self._jb
 
+    def send_file(self, path, ctype, extra=None):
+        """Stream a large file (a database backup) instead of holding it in memory."""
+        size = os.path.getsize(path)
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(size))
+        self.send_header("Cache-Control", "no-store")
+        for k, v in SECURITY_HEADERS.items():
+            self.send_header(k, v)
+        for k, v in (extra or {}).items():
+            self.send_header(k, v)
+        self.end_headers()
+        with open(path, "rb") as f:
+            while True:
+                chunk = f.read(1024 * 1024)
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+
     def send(self, code, ctype, body, extra=None):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
@@ -966,6 +1042,8 @@ class Handler(BaseHTTPRequestHandler):
                                 extra = {"Set-Cookie": f"{auth.COOKIE}={raw}; HttpOnly; SameSite=Strict; Path=/; Max-Age={ttl}"}
                             if isinstance(res, tuple) and res and res[0] == "raw":
                                 return self.send(200, res[1], res[2], res[3] if len(res) > 3 else None)
+                            if isinstance(res, tuple) and res and res[0] == "file":
+                                return self.send_file(res[1], res[2], res[3] if len(res) > 3 else None)
                             return self.send(200, "application/json; charset=utf-8", json.dumps(res, default=str).encode(), extra)
                 raise HttpError(404, "no such endpoint")
             if method != "GET":

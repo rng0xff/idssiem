@@ -10,6 +10,14 @@ python idssiem.py --import export.csv      # optional: import before starting
 
 Data is stored in `data/siem.db` (SQLite). Set `IDS_SIEM_DB` to use another path.
 
+## Backup and restore
+
+**Data → Backup and restore** (administrator) makes a consistent copy of the whole database (events, alerts, cases, experts, settings, users, audit log) with SQLite's online backup, so the tool can keep running. Backups are kept in `data/backups/`, listed with size and time, and can be downloaded, restored or deleted. **Restore from a file...** takes a backup from elsewhere. A restore checks the file first (it must be an intact database of this tool with users), saves the current state as a `before-restore` backup, replaces everything, brings an older backup up to date and signs everybody out; you type `RESTORE` to confirm. Backup, restore, download and delete are written to the audit log (after a restore, the audit log is the one from the backup plus the restore entry; the previous one is in the before-restore backup).
+
+On the command line: `python idssiem.py --backup [FILE]` (also while the server runs) and `python idssiem.py --restore FILE [--yes]` (stop the server first).
+
+Backup files contain password hashes, API tokens and authenticator secrets, and are created readable by the owner only. Handle them like the database.
+
 ## What it does
 
 | Page | Use |
