@@ -288,6 +288,7 @@ def summary(p):
     al = rows("SELECT severity, COUNT(*) n FROM alerts WHERE status IN ('new','in_progress') GROUP BY severity")
     out["open_alerts"] = {x["severity"]: x["n"] for x in al}
     out["open_alerts_total"] = sum(x["n"] for x in al)
+    out["new_alerts"] = one_val("SELECT COUNT(*) FROM alerts WHERE status='new'")
     out["unclassified_types"] = one_val("SELECT COUNT(*) FROM catalog WHERE auto=1")
     out["open_cases"] = one_val("SELECT COUNT(*) FROM cases WHERE status <> 'closed'")
     return out

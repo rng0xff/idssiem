@@ -52,7 +52,7 @@ async function refreshChrome() {
   try {
     const s = await api('/api/summary');
     const b = $('#alert-badge');
-    b.hidden = !s.open_alerts_total; b.textContent = fmtN(s.open_alerts_total);
+    b.hidden = !s.new_alerts; b.textContent = fmtN(s.new_alerts); b.title = `${fmtN(s.new_alerts)} new alerts, ${fmtN(s.open_alerts_total)} open in total`;
     const cb = $('#case-badge'); cb.hidden = !s.open_cases; cb.textContent = fmtN(s.open_cases);
     $('#doc').innerHTML = s.total ? `<b>${fmtN(s.total)}</b> events from <b>${fmtN(s.vins)}</b> vehicles${s.first_ts ? `, ${fmtDay(s.first_ts)} to ${fmtDay(s.last_ts)}` : ''}, times in UTC` : 'No data loaded';
   } catch (_) { /* ignore */ }
