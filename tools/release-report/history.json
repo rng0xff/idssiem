@@ -5,5 +5,12 @@
     "editor": "Matthias Wachs",
     "date": "16.10.2026",
     "version": "build 3d84890"
+  },
+  {
+    "rev": "002",
+    "desc": "Re-validation for build 720fa6a (commit 720fa6a); test report, checksums and evidence updated",
+    "editor": "Matthias Wachs",
+    "date": "16.10.2026",
+    "version": "build 720fa6a"
   }
 ]

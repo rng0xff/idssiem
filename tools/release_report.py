@@ -116,8 +116,8 @@ g = subprocess.run([sys.executable, os.path.join(RR, 'generate.py'), fp, os.path
 if g.returncode: die('generate.py failed (exit %d)' % g.returncode)
 keep = (cfg['docNumber'] + '-' if cfg['docNumber'] else '') + cfg['fileTitle']
 for f in os.listdir(OUT):
-    m = re.match(r'^(CORP-.+?)-(.+)\.(docx|pdf)$', f)
-    if m and m.group(2) == cfg['fileTitle'] and m.group(1) + '-' + m.group(2) != keep: os.remove(os.path.join(OUT, f)); print('removed old file ' + f)
+    m = re.match(r'^(.+)\.(docx|pdf)$', f)
+    if m and m.group(1).startswith('CORP-') and m.group(1).endswith('-' + cfg['fileTitle']) and m.group(1) != keep: os.remove(os.path.join(OUT, f)); print('removed old file ' + f)
 if flag('--release'):
     if pending: history.append(pending); open(hfile, 'w', encoding='utf8').write(json.dumps(history, indent=2) + '\n'); print('history.json: revision %s added' % pending['rev'])
     else: print('history.json unchanged (version %s already recorded)' % tool['version'])
