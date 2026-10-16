@@ -1,6 +1,6 @@
 """Checks the MCP server against a running app that holds data (edit B, the login and the case number below for your setup)."""
 import json, subprocess, sys, os, urllib.request
-B="http://localhost:8860"
+B=os.environ.get("IDS_SIEM_TEST_URL","http://localhost:8860")
 def api(m,p,body=None,ck=None):
     h={"X-SIEM":"1","Content-Type":"application/json"}
     if ck: h["Cookie"]="siem_session="+ck
